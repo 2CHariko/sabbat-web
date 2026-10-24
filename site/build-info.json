@@ -1,0 +1,15 @@
+{
+  "version": "1.0.0",
+  "distribution": "prebuilt-runtime-only",
+  "createdAt": "2026-10-24T16:51:19.689Z",
+  "gameId": "sabbat",
+  "compatibilityId": "af1da91da9b71dba500de477fcb1f2a713620f127ea0d85ee22872fc341196d0",
+  "resourceSetId": "32aa8886c1b8c9a946271b8ca3b313865795d474dccc4a3203c595e25cecec5a",
+  "support": {
+    "userConfirmed": [
+      "PC Chrome",
+      "Android Chrome"
+    ],
+    "illustration": "Tablet and phone presentation uses recorded real pages with Chromium touch emulation."
+  }
+}

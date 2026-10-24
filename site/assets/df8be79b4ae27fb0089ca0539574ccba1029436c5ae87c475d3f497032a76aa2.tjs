@@ -1,0 +1,17 @@
+// KAG's matrix addresses the parent canvas; the CPU player writes a bitmap
+// belonging to one layer. Move the matrix to that bitmap's local origin.
+global.__SabbatMotionDrawAffine=AffineSourceMotion._drawAffine;
+AffineSourceMotion._drawAffine=function(layer,matrix,owner) {
+  if(_storageType!="motion")return (__SabbatMotionDrawAffine incontextof this)(layer,matrix,owner);
+  var x=*(&Layer.left incontextof owner)+*(&Layer.imageLeft incontextof owner);
+  var y=*(&Layer.top incontextof owner)+*(&Layer.imageTop incontextof owner);
+  var local=new AffineMatrix();local.copy(matrix);
+  local.m14-=x;local.m24-=y;
+  var result=(__SabbatMotionDrawAffine incontextof this)(layer,local,owner);
+  // Keep touch lookup in the original parent coordinate space.
+  if(revmtx!==void) {
+    revmtx.tx-=revmtx.a*x+revmtx.c*y;
+    revmtx.ty-=revmtx.b*x+revmtx.d*y;
+  }
+  return result;
+} incontextof null;

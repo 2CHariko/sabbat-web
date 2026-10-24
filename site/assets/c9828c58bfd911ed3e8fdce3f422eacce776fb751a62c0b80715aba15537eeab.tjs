@@ -1,0 +1,49 @@
+// Browser replacement for the CSVParser API used by this game's UI scripts.
+// Supports separators, quoted fields, doubled quotes, and multiline records.
+class CSVParser {
+  var separator = ",";
+  var owner;
+  var currentLineNumber = 0;
+  var _text = "", _position = 0;
+  // Native callers construct CSVParser(owner, delimiterCode). Config .txt
+  // files use code 9 (TAB); .csv files use 44. Preserve both contracts.
+  function CSVParser(target=void, delimiterCode=44) {
+    owner=target;
+    separator=typeof delimiterCode=="String" ? delimiterCode : $delimiterCode;
+  }
+  function finalize() { _text="";_position=0; }
+  function initStorage(storage, mode="") {
+    var lines = [];
+    lines.load(storage, mode);
+    initString(lines.join("\n"));
+  }
+  function initString(text) { _text = text; _position = 0; currentLineNumber = 0; }
+  function getLineNo() { return currentLineNumber; }
+  function getNextLine() {
+    if (_position >= _text.length) return void;
+    var row = [], value = "", quoted = false;
+    while (_position < _text.length) {
+      var c = _text[_position++];
+      // Quotes inside an unquoted field belong to TJS expressions, e.g.
+      // this.enabled=(.Current.propget("hasContinue")). Only a quote at
+      // the beginning of a field opens CSV quoting.
+      if (c == "\"" && (quoted || value.length == 0)) {
+        if (quoted && _text[_position] == "\"") { value += "\""; _position++; }
+        else quoted = !quoted;
+      } else if (!quoted && c == separator) {
+        row.add(value); value = "";
+      } else if (!quoted && (c == "\n" || c == "\r")) {
+        if (c == "\r" && _text[_position] == "\n") _position++;
+        currentLineNumber++; row.add(value); return row;
+      } else value += c;
+    }
+    currentLineNumber++; row.add(value); return row;
+  }
+  function nextLine() { return getNextLine(); }
+  function parseStorage(storage, mode="") {
+    initStorage(storage, mode);
+    var row;
+    while ((row = getNextLine()) !== void) doLine(row);
+  }
+  function doLine(row) {}
+}

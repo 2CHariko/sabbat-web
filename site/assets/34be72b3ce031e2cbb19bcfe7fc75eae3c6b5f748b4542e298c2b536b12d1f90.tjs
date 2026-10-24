@@ -1,0 +1,550 @@
+// Minimal TJS VideoOverlay replacement for the Web video spike.
+//
+// KAG's Movie and gfx_movie's MovieControlLayer both extend VideoOverlay.
+// Replacing the class before system scripts load keeps their code unchanged;
+// this class drives a detached <video> through Sabbat.video and copies decoded
+// frames into the target engine Layer each frame.
+//
+// The implementation is deliberately small: it covers the members used by the
+// OP path first, then grows as the spike exercises MovieControlLayer.
+
+global.__SabbatNextVideoId = 1;
+global.__SabbatVideos = [];
+global.__SabbatPumpCalls = 0;
+global.__SabbatPumpNowCalls = 0;
+global.__SabbatPumpLayer = 0;
+global.__SabbatPumpSized = 0;
+global.__SabbatPumpWrote = 0;
+
+global.__SabbatVideoCreate = KirikiriEmscriptenInterface.evalJS("Sabbat.video.open");
+global.__SabbatVideoPlay = KirikiriEmscriptenInterface.evalJS("Sabbat.video.play");
+global.__SabbatVideoPause = KirikiriEmscriptenInterface.evalJS("Sabbat.video.pause");
+global.__SabbatVideoStop = KirikiriEmscriptenInterface.evalJS("Sabbat.video.stop");
+global.__SabbatVideoSeek = KirikiriEmscriptenInterface.evalJS("Sabbat.video.seek");
+global.__SabbatVideoClose = KirikiriEmscriptenInterface.evalJS("Sabbat.video.close");
+global.__SabbatVideoSetVolume = KirikiriEmscriptenInterface.evalJS("Sabbat.video.setVolume");
+global.__SabbatVideoSetRate = KirikiriEmscriptenInterface.evalJS("Sabbat.video.setRate");
+global.__SabbatVideoSetLoop = KirikiriEmscriptenInterface.evalJS("Sabbat.video.setLoop");
+global.__SabbatVideoState = KirikiriEmscriptenInterface.evalJS("Sabbat.video.state");
+global.__SabbatVideoPosition = KirikiriEmscriptenInterface.evalJS("Sabbat.video.position");
+global.__SabbatVideoDuration = KirikiriEmscriptenInterface.evalJS("Sabbat.video.duration");
+global.__SabbatVideoWidth = KirikiriEmscriptenInterface.evalJS("Sabbat.video.width");
+global.__SabbatVideoHeight = KirikiriEmscriptenInterface.evalJS("Sabbat.video.height");
+global.__SabbatVideoFps = KirikiriEmscriptenInterface.evalJS("Sabbat.video.fps");
+global.__SabbatVideoFrame = KirikiriEmscriptenInterface.evalJS("Sabbat.video.frame");
+global.__SabbatVideoLooped = KirikiriEmscriptenInterface.evalJS("Sabbat.video.looped");
+global.__SabbatVideoPump = KirikiriEmscriptenInterface.evalJS("Sabbat.video.pump");
+global.__SabbatVideoError = KirikiriEmscriptenInterface.evalJS("Sabbat.video.error");
+
+class VideoOverlay
+{
+	var _id = -1;
+	var _mode = 0;
+	var _visible = false;
+	var _loop = false;
+	var _frame = 0;
+	var _position = 0;
+	var _fps = 30;
+	var _total = 0;
+	var _width = 0;
+	var _height = 0;
+	var _left = 0;
+	var _top = 0;
+	var _layer1 = void;
+	var _layer2 = void;
+	var _segStart = -1;
+	var _segEnd = -1;
+	var _periodFrame = -1;
+	var _eventPast = false;
+	var _status = "unload";
+	var _pendingStatus = "";
+	var _prepare = false;
+	var _volume = 1000;
+	var _balance = 0;
+	var _pendingSeek = -1;
+	var _readyFired = false;
+	var _lastError = "";
+	var _timer = void;
+
+	function VideoOverlay()
+	{
+		global.__SabbatVideos.add(this);
+	}
+
+	function _startTimer()
+	{
+		if(_timer !== void) return;
+		_timer = new Timer(this, "pumpTimer");
+		_timer.interval = 16;
+		_timer.enabled = true;
+	}
+
+	function _stopTimer()
+	{
+		if(_timer === void) return;
+		_timer.enabled = false;
+		_timer = void;
+	}
+
+	function pumpTimer()
+	{
+		this.pumpFrame();
+	}
+
+	function finalize()
+	{
+		close();
+	}
+
+	// Native VideoOverlay exposes these event hooks; subclasses override them.
+	// Defining no-ops keeps typeof/calls safe for plain Movie instances.
+	function onStatusChanged(status) { }
+	function onPeriod(reason) { }
+	function onFrameUpdate(frame) { }
+	function onCallbackCommand(command, argument) { }
+
+	function open(storage)
+	{
+		if(_id >= 0)
+			close();
+		_pendingSeek = -1;
+		_readyFired = false;
+		_lastError = "";
+		_status = "stop";
+		_prepare = false;
+		var id = __SabbatVideoCreate(storage);
+		if(id < 0)
+		{
+			_lastError = __SabbatVideoError(-1);
+			throw new Exception("Sabbat video open failed: " + storage + " (" + _lastError + ")");
+		}
+		_id = id;
+		_fps = __SabbatVideoFps(id);
+		if(_fps <= 0) _fps = 30;
+		_width = __SabbatVideoWidth(id);
+		_height = __SabbatVideoHeight(id);
+		_total = __SabbatVideoDuration(id);
+		_frame = 0;
+		_position = 0;
+		_startTimer();
+		if(_layer1 !== void)
+		{
+			try { _layer1.visible = _visible; }
+			catch(e) { Debug.message("[Sabbat video] open layer1 skipped: " + e.message); }
+		}
+	}
+
+	function close()
+	{
+		_stopTimer();
+		if(_id >= 0)
+		{
+			__SabbatVideoClose(_id);
+			_id = -1;
+		}
+		_status = "unload";
+		global.__SabbatVideos.remove(this);
+	}
+
+	function play()
+	{
+		if(_id < 0) return;
+		_status = "play";
+		_pendingStatus = "play";
+		__SabbatVideoPlay(_id);
+	}
+
+	function stop()
+	{
+		_stopTimer();
+		if(_id >= 0)
+			__SabbatVideoStop(_id);
+		var wasPlaying = (_status == "play");
+		_status = "stop";
+		if(wasPlaying)
+			this.onStatusChanged("stop");
+	}
+
+	function pause()
+	{
+		if(_id < 0) return;
+		__SabbatVideoPause(_id);
+		_status = "pause";
+		this.onStatusChanged("pause");
+	}
+
+	function rewind()
+	{
+		_frame = 0;
+		_position = 0;
+		_eventPast = false;
+		if(_id >= 0) __SabbatVideoSeek(_id, 0);
+	}
+
+	function prepare()
+	{
+		if(_id < 0) return;
+		_prepare = true;
+		_frame = 0;
+		_position = 0;
+		__SabbatVideoSeek(_id, 0);
+		_status = "play";
+		__SabbatVideoPlay(_id);
+	}
+
+	function setSegmentLoop(comeFrame, goFrame)
+	{
+		_segStart = comeFrame;
+		_segEnd = goFrame;
+	}
+
+	function cancelSegmentLoop()
+	{
+		_segStart = -1;
+		_segEnd = -1;
+	}
+
+	function setPeriodEvent(eventFrame)
+	{
+		_periodFrame = eventFrame;
+		_eventPast = (eventFrame >= 0 && eventFrame <= _frame);
+	}
+
+	function cancelPeriodEvent()
+	{
+		_periodFrame = -1;
+	}
+
+	function setPos(left, top)
+	{
+		_left = left;
+		_top = top;
+		if(_layer1 !== void) { try { _layer1.setPos(left, top); } catch(e) { } }
+		if(_layer2 !== void) { try { _layer2.setPos(left, top); } catch(e) { } }
+	}
+
+	function setSize(width, height)
+	{
+		_width = width;
+		_height = height;
+		if(_layer1 !== void) { try { _layer1.setSize(width, height); } catch(e) { } }
+		if(_layer2 !== void) { try { _layer2.setSize(width, height); } catch(e) { } }
+	}
+
+	function setBounds(left, top, width, height)
+	{
+		_left = left;
+		_top = top;
+		_width = width;
+		_height = height;
+		try
+		{
+			var l1 = this.layer1;
+			if(l1 !== void && l1 !== null)
+			{
+				l1.setPos(left, top);
+				l1.setSize(width, height);
+			}
+		}
+		catch(e) { }
+		try
+		{
+			var l2 = this.layer2;
+			if(l2 !== void && l2 !== null)
+			{
+				l2.setPos(left, top);
+				l2.setSize(width, height);
+			}
+		}
+		catch(e) { }
+	}
+
+	function selectAudioStream(stream)
+	{
+	}
+
+	function setMixingLayer(layer)
+	{
+	}
+
+	function resetMixingLayer()
+	{
+	}
+
+	function _applySize(layer, width, height)
+	{
+		if(layer === void) return 0;
+		try
+		{
+			var iw = *(&global.Layer.imageWidth incontextof layer);
+			var ih = *(&global.Layer.imageHeight incontextof layer);
+			if(iw != width || ih != height)
+			{
+				layer.setImageSize(width, height);
+				layer.setSize(width, height);
+			}
+			return 1;
+		}
+		catch(e) { return 0; }
+	}
+
+	function _pumpLayer(layer, width, height)
+	{
+		if(layer === void) return 0;
+		try
+		{
+			var ptr = *(&global.Layer.mainImageBufferForWrite incontextof layer);
+			var pitch = *(&global.Layer.mainImageBufferPitch incontextof layer);
+			if(ptr == 0 || pitch == 0) return 0;
+			if(__SabbatVideoPump(_id, ptr, pitch, width, height) != 1) return 0;
+			layer.update();
+			return 1;
+		}
+		catch(e)
+		{
+			Debug.message("[Sabbat video] pump layer failed: " + e.message);
+			return 0;
+		}
+	}
+
+	function pumpFrame()
+	{
+		global.__SabbatPumpCalls = (global.__SabbatPumpCalls || 0) + 1;
+		if(_id < 0) return;
+		if(_pendingStatus != "")
+		{
+			var pending = _pendingStatus;
+			_pendingStatus = "";
+			this.onStatusChanged(pending);
+		}
+		var st = __SabbatVideoState(_id);
+		if(st == 5)
+		{
+			_lastError = __SabbatVideoError(_id);
+			if(_status == "play") stop();
+			return;
+		}
+		if(st == 4 && _status == "play") { stop(); return; }
+		var l1 = this.layer1;
+		if(l1 === void || l1 === null) return;
+		global.__SabbatPumpLayer = (global.__SabbatPumpLayer || 0) + 1;
+		if(st < 2) return;
+		var width = __SabbatVideoWidth(_id);
+		var height = __SabbatVideoHeight(_id);
+		if(width <= 0 || height <= 0) return;
+		global.__SabbatPumpSized = (global.__SabbatPumpSized || 0) + 1;
+		if(_pendingSeek >= 0)
+		{
+			__SabbatVideoSeek(_id, _pendingSeek / 1000.0);
+			_pendingSeek = -1;
+		}
+		_applySize(l1, width, height);
+		var l2 = this.layer2;
+		if(l2 !== void && l2 !== null) _applySize(l2, width, height);
+		var wrote = _pumpLayer(l1, width, height);
+		if(wrote == 0) return;
+		global.__SabbatPumpWrote = (global.__SabbatPumpWrote || 0) + 1;
+		if(l2 !== void && l2 !== null) _pumpLayer(l2, width, height);
+		_frame = __SabbatVideoFrame(_id, _fps);
+		_position = __SabbatVideoPosition(_id);
+		this.onFrameUpdate(_frame);
+
+		if(_prepare)
+		{
+			_prepare = false;
+			__SabbatVideoPause(_id);
+			__SabbatVideoSeek(_id, 0);
+			_status = "pause";
+			this.onStatusChanged("pause");
+			this.onPeriod(2); // perPrepare
+			return;
+		}
+
+		if(_segEnd > 0 && _frame >= _segEnd)
+		{
+			var start = (_segStart > 0) ? _segStart : 0;
+			_frame = start;
+			__SabbatVideoSeek(_id, start / _fps);
+			this.onPeriod(3); // perSegLoop
+			return;
+		}
+
+		if(__SabbatVideoLooped(_id) == 1)
+		{
+			this.onPeriod(0); // perLoop
+		}
+
+		if(_periodFrame >= 0 && !_eventPast && _frame >= _periodFrame)
+		{
+			_periodFrame = -1;
+			this.onPeriod(1); // perPeriod
+		}
+
+		if(st == 4 && _status == "play")
+			stop();
+	}
+
+	function pumpNow()
+	{
+		global.__SabbatPumpNowCalls = (global.__SabbatPumpNowCalls || 0) + 1;
+		this.pumpFrame();
+	}
+
+	function debugState()
+	{
+		return "id=" + _id + " status=" + _status + " pos=" + _position + " frame=" + _frame + " fps=" + _fps;
+	}
+
+	// -- properties -------------------------------------------------------
+
+	property position
+	{
+		getter { return _position; }
+		setter(v)
+		{
+			_position = v;
+			if(_id >= 0) _pendingSeek = v;
+			_eventPast = false;
+		}
+	}
+
+	property left { getter { return _left; } setter(v) { _left = v; if(_layer1 !== void) _layer1.left = v; } }
+	property top { getter { return _top; } setter(v) { _top = v; if(_layer1 !== void) _layer1.top = v; } }
+	property width { getter { return _width; } setter(v) { _width = v; if(_layer1 !== void) _layer1.width = v; } }
+	property height { getter { return _height; } setter(v) { _height = v; if(_layer1 !== void) _layer1.height = v; } }
+	property originalWidth { getter { return _width; } }
+	property originalHeight { getter { return _height; } }
+
+	property visible
+	{
+		getter { return _visible; }
+		setter(v)
+		{
+			_visible = v;
+			if(_layer1 !== void) { try { _layer1.visible = v; } catch(e) { } }
+			if(_layer2 !== void) { try { _layer2.visible = v; } catch(e) { } }
+		}
+	}
+
+	property loop
+	{
+		getter { return _loop; }
+		setter(v)
+		{
+			_loop = v;
+			if(_id >= 0) __SabbatVideoSetLoop(_id, v);
+		}
+	}
+
+	property frame
+	{
+		getter { return _frame; }
+		setter(v)
+		{
+			_frame = v;
+			if(_id >= 0) _pendingSeek = (v / _fps) * 1000.0;
+			_eventPast = false;
+		}
+	}
+
+	property fps { getter { return _fps; } }
+	property numberOfFrame { getter { return (_total > 0) ? Math.floor(_total * _fps / 1000.0) : 0; } }
+	property totalTime { getter { return _total; } }
+
+	property layer1
+	{
+		getter { return _layer1; }
+		setter(v)
+		{
+			_layer1 = (v === null) ? void : v;
+			if(_layer1 !== void) _layer1.visible = _visible;
+		}
+	}
+
+	property layer2
+	{
+		getter { return _layer2; }
+		setter(v)
+		{
+			_layer2 = (v === null) ? void : v;
+			if(_layer2 !== void) _layer2.visible = _visible;
+		}
+	}
+
+	property mode { getter { return _mode; } setter(v) { _mode = v; } }
+
+	property playRate
+	{
+		getter { return 1.0; }
+		setter(v) { if(_id >= 0) __SabbatVideoSetRate(_id, v); }
+	}
+
+	property segmentLoopStartFrame { getter { return _segStart; } }
+	property segmentLoopEndFrame { getter { return _segEnd; } }
+
+	property periodEventFrame
+	{
+		getter { return _periodFrame; }
+		setter(v) { setPeriodEvent(v); }
+	}
+
+	property audioVolume
+	{
+		getter { return _volume; }
+		setter(v)
+		{
+			_volume = v;
+			if(_id >= 0) __SabbatVideoSetVolume(_id, v);
+		}
+	}
+
+	property audioBalance { getter { return _balance; } setter(v) { _balance = v; } }
+	property numberOfAudioStream { getter { return 1; } }
+	property enabledAudioStream { getter { return 0; } setter(v) { } }
+	property numberOfVideoStream { getter { return 1; } }
+	property enabledVideoStream { getter { return 0; } setter(v) { } }
+	property mixingMovieAlpha { getter { return 1.0; } setter(v) { } }
+	property mixingMovieBGColor { getter { return 0; } setter(v) { } }
+
+	property contrastRangeMin { getter { return 0.0; } }
+	property contrastRangeMax { getter { return 0.0; } }
+	property contrastDefaultValue { getter { return 0.0; } }
+	property contrastStepSize { getter { return 0.0; } }
+	property contrast { getter { return 0.0; } setter(v) { } }
+	property brightnessRangeMin { getter { return 0.0; } }
+	property brightnessRangeMax { getter { return 0.0; } }
+	property brightnessDefaultValue { getter { return 0.0; } }
+	property brightnessStepSize { getter { return 0.0; } }
+	property brightness { getter { return 0.0; } setter(v) { } }
+	property hueRangeMin { getter { return 0.0; } }
+	property hueRangeMax { getter { return 0.0; } }
+	property hueDefaultValue { getter { return 0.0; } }
+	property hueStepSize { getter { return 0.0; } }
+	property hue { getter { return 0.0; } setter(v) { } }
+	property saturationRangeMin { getter { return 0.0; } }
+	property saturationRangeMax { getter { return 0.0; } }
+	property saturationDefaultValue { getter { return 0.0; } }
+	property saturationStepSize { getter { return 0.0; } }
+	property saturation { getter { return 0.0; } setter(v) { } }
+}
+
+global.SabbatVideoOverlay = VideoOverlay;
+global.VideoOverlay = VideoOverlay;
+
+global.__SabbatVideoTick = function()
+{
+	var list = global.__SabbatVideos;
+	if(list === void) return;
+	for(var i = 0; i < list.count; i++)
+	{
+		var video = list[i];
+		if(video !== void)
+		{
+			try { video.pumpFrame(); }
+			catch(e) { Debug.message("[Sabbat video] pump tick failed: " + e.message); }
+		}
+	}
+};
+
+System.addContinuousHandler(global.__SabbatVideoTick);
+Debug.message("[Sabbat Web] VideoOverlay spike installed");

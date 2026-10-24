@@ -1,0 +1,14 @@
+// Menu object model for scripts; browser popup UI is not implemented yet.
+class MenuItem {
+  var caption="",checked=false,enabled=true,group=0,radio=false,shortcut="",visible=true;
+  var parent=void,children,root=void,window=void,index=0;
+  function MenuItem(owner=void,text="") {children=[];window=owner;caption=text;root=this;}
+  function finalize() {children=[];parent=void;}
+  function add(item) {item.parent=this;item.root=root;item.index=children.count;children.add(item);}
+  function insert(item,position=0) {item.parent=this;item.root=root;children.insert(position,item);}
+  function remove(item) {for(var i=children.count-1;i>=0;i--)if(children[i]===item)children.erase(i);item.parent=void;}
+  function onClick() {}
+  function fireClick() {if(enabled)onClick();}
+  function popup() {throw new Exception("Browser native menu popup is not implemented");}
+}
+global.Window.menu = new MenuItem();

@@ -1,0 +1,95 @@
+// Keep the legacy fallback only when native plugins were explicitly disabled.
+// envinit.tjs selects them for sysopen/sysclose (including settings). Use the
+// engine's real crossfade handler instead. This is a deliberate visual downgrade,
+// not an implementation of the original rotation/zoom effect. Source/target,
+// duration, children and completion callbacks still use native beginTransition.
+// Do not swallow failures or replace unrelated transition names.
+if (typeof global.__SabbatNativeBeginTransition == "undefined") {
+    global.__SabbatNativeBeginTransition = Layer.beginTransition;
+    global.__SabbatTransitionFallbacks = [];
+    Layer.beginTransition = function(name, *) {
+        var method = (string)name;
+        var key = method.toLowerCase();
+        if ((key == "rotatezoom" || key == "rotatevanish") && !__SabbatNativePlugins["extrans.dll"]) {
+            __SabbatTransitionFallbacks.add(%[requested:method, actual:"crossfade"]);
+            Debug.message("[Sabbat Web] optional " + method + " transition replaced by native crossfade");
+            method = "crossfade";
+        }
+        return (__SabbatNativeBeginTransition incontextof this)(method, *);
+    } incontextof null;
+}
+
+// The SDL port also resets the retained title UI's message-layer position to
+// the dialogue default on return (observed top 0 -> 777). Its named buttons
+// remain intact but are displaced off-screen. It also replaces their transparent
+// main image with the dialogue's black background (alpha 101). Preserve the real
+// title geometry and image at its first stop, then restore those retained title
+// layers on later title stops. Install after genuine startup creates the window.
+function SabbatInstallTitleMenuPositionRestore() {
+    if (typeof global.__SabbatTitleMenuPositionInstalled != "undefined") return;
+    global.__SabbatTitleMenuPositionInstalled = true;
+    global.__SabbatTitleMenuPositions = [];
+    global.__SabbatTitleMenuPositionRestores = 0;
+    global.__SabbatRestoreRetainedTitleMenus = function(capture=false) {
+        var pages = [kag.fore, kag.back];
+        for (var i = 0; i < pages.count; i++) {
+            var menu = pages[i].messages[0];
+            if (typeof menu.names != "Object" || menu.names.start === void || menu.names.system === void) continue;
+            if (__SabbatTitleMenuPositions[i] === void) {
+                if (!capture) continue;
+                var image = new Layer(kag, kag._primaryLayer);
+                image.name = "Sabbat retained title UI image " + i;
+                image.visible = false;
+                image.assignImages(menu);
+                __SabbatTitleMenuPositions[i] = %[x:menu.left, y:menu.top, image:image];
+            } else {
+                var saved = __SabbatTitleMenuPositions[i];
+                (Layer.assignImages incontextof menu)(saved.image);
+                if (menu.left != saved.x || menu.top != saved.y) {
+                    menu.setPos(saved.x, saved.y);
+                    __SabbatTitleMenuPositionRestores++;
+                    Debug.message("[Sabbat Web] restored retained title menu position");
+                }
+            }
+            // Page swaps retain the text layer's original fore/back name.
+            // Follow the actual line object: title buttons need no dialogue.
+            if (menu.lineLayer) menu.lineLayer.visible = false;
+        }
+    };
+    global.__SabbatRestoreTitleMenuPosition = function(*) {
+        if (kag.conductor.curStorage != "title.ks" || kag.conductor.curLabel != "*wait") return;
+        __SabbatRestoreRetainedTitleMenus(true);
+    };
+    // option.close.init redraws dialogue before its closing transition. That
+    // redraw also resets the retained title menu to the dialogue defaults.
+    // Restore it in the same call, before any transition frame can expose it.
+    // A title wait hook alone runs after the bad frame has already been drawn.
+    global.__SabbatTitleMenuNativeRedrawMessageText = global.redrawMessageText;
+    global.redrawMessageText = function(*) {
+        var result = (__SabbatTitleMenuNativeRedrawMessageText incontextof this)(*);
+        __SabbatRestoreRetainedTitleMenus();
+        return result;
+    } incontextof null;
+    // sysrestore selects message0 again after the closing transition, and the
+    // SDL current handler resets its geometry once more. Keep the retained UI
+    // valid before the conductor yields, rather than repairing the next stop.
+    global.__SabbatTitleMenuNativeCurrent = kag.tagHandlers.current;
+    kag.tagHandlers.current = function(*) {
+        var result = (__SabbatTitleMenuNativeCurrent incontextof this)(*);
+        __SabbatRestoreRetainedTitleMenus();
+        return result;
+    } incontextof kag;
+    // Returning from the extra conductor can also emit a floating text line
+    // into this UI-only message layer. Finish the handler, then hide that line
+    // in the same frame. Dialogue layers have no named title buttons.
+    global.__SabbatTitleMenuNativeCh = kag.tagHandlers.ch;
+    kag.tagHandlers.ch = function(*) {
+        var result = (__SabbatTitleMenuNativeCh incontextof this)(*);
+        var menu = kag.current;
+        if (typeof menu.names == "Object" && menu.names.start !== void && menu.names.system !== void)
+            __SabbatRestoreRetainedTitleMenus();
+        return result;
+    } incontextof kag;
+    kag.addHook("onConductorStop", __SabbatRestoreTitleMenuPosition);
+    __SabbatRestoreTitleMenuPosition();
+}

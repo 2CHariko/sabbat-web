@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta name="description" content="魔女的夜宴 Web 移植：原作脚本与演出，本地资源读取，电脑与触屏操作。"><meta property="og:image" content="https://2chariko.github.io/sabbat-web/media/hero.webp"><link rel="icon" href="favicon.svg">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="data:,">
+<title>魔女的夜宴 · Web 移植测试</title>
+<style>
+  :root{
+    --ink:#07060b; --line:#ffffff14; --text:#ece8f6; --dim:#a79fbe;
+    --gold:#e7c777; --violet:#8b5cf6; --rose:#f0a6c8;
+    --sw:1280px; --sh:720px; --cw:1280px; --ch:720px; --k:1;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;overflow:hidden;background:var(--ink);color:var(--text);
+    font:14px/1.6 "Noto Sans CJK SC","Source Han Sans SC","PingFang SC",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;overscroll-behavior:none}
+  body{background:
+      radial-gradient(1100px 620px at 50% -12%, #2b1848 0%, #0000 62%),
+      radial-gradient(820px 460px at 88% 112%, #3a1230 0%, #0000 66%),
+      radial-gradient(680px 460px at 8% 104%, #101a3a 0%, #0000 62%),
+      var(--ink)}
+  /* CSS-only star dust; no bitmap assets. */
+  body::before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.55;
+    background-repeat:no-repeat;
+    background-image:
+      radial-gradient(1px 1px at 12% 22%, #ffffff99, #0000),
+      radial-gradient(1px 1px at 78% 14%, #ffffff66, #0000),
+      radial-gradient(1.5px 1.5px at 64% 68%, #ffffff77, #0000),
+      radial-gradient(1px 1px at 33% 82%, #ffffff55, #0000),
+      radial-gradient(1px 1px at 88% 54%, #ffffff66, #0000),
+      radial-gradient(1px 1px at 45% 38%, #ffffff44, #0000),
+      radial-gradient(1px 1px at 22% 58%, #ffffff44, #0000)}
+
+  /* Safe-area insets keep the stage and every shell control clear of notches and
+   * home indicators on phones; the stage is centred inside the padded box. */
+  #app{position:fixed;left:var(--view-left,0px);top:var(--view-top,0px);
+    width:var(--view-width,100%);height:var(--view-height,100%);display:grid;place-items:center;overflow:hidden;
+    padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px)
+            env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
+
+  /* 16:9 stage: the engine always gets a clean aspect-correct surface. */
+  #stage{position:relative;width:var(--sw);height:var(--sh);overflow:hidden;background:#000;
+    box-shadow:0 0 0 1px #ffffff10, 0 24px 80px #000a, 0 0 140px #5b2ea02e}
+  /* Only pay for a compositor layer when the picture is actually dimmed. */
+  body.dimmed #stage{filter:brightness(var(--brightness,1))}
+  #screen{position:absolute;left:50%;top:50%;width:var(--cw);height:var(--ch);
+    transform:translate(-50%,-50%) scale(var(--k));transform-origin:center}
+  #canvas{display:block;width:100%!important;height:100%!important;max-width:none!important;
+    max-height:none!important;background:#000;outline:0;
+    touch-action:manipulation;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+
+  /* Night filter: a dimmer over the picture only, below every shell control. */
+  #veil{position:absolute;inset:0;z-index:10;pointer-events:none;background:#04060e;
+    opacity:var(--night,0);transition:opacity .18s ease}
+  body.backdrop-black{background:#000}
+  body.backdrop-black::before{display:none}
+  body.backdrop-midnight{background:
+      radial-gradient(1100px 620px at 50% -12%, #0a1430 0%, #0000 62%),
+      radial-gradient(820px 460px at 88% 112%, #0d1b34 0%, #0000 66%), #02040a}
+  body.backdrop-midnight::before{opacity:.3}
+
+  /* ---------- splash ---------- */
+  #splash{position:absolute;inset:0;z-index:30;display:grid;place-items:center;
+    background:radial-gradient(760px 460px at 50% 44%, #2a1747d9, #0000 72%), #07060bef;
+    transition:opacity .45s ease, visibility .45s ease}
+  #splash.done{opacity:0;visibility:hidden;pointer-events:none}
+  .card{width:min(440px,88vw);text-align:center;padding:0 4px}
+  .eyebrow{font-size:10px;letter-spacing:.42em;color:var(--dim);text-transform:uppercase}
+  .title{font-family:"Noto Serif CJK SC","Source Han Serif SC","Songti SC",serif;
+    font-size:clamp(30px,4.4vw,44px);letter-spacing:.16em;margin:.3em 0 .12em;color:#fff;
+    text-shadow:0 0 36px #8b5cf655}
+  .sub{font-size:10px;letter-spacing:.34em;color:var(--gold);text-transform:uppercase}
+  .badge{display:inline-block;margin-top:12px;padding:2px 11px;border:1px solid #e7c77740;
+    border-radius:999px;font-size:11px;color:var(--gold);letter-spacing:.08em}
+
+  .steps{display:flex;align-items:center;gap:8px;margin:30px 0 10px;font-size:11px;color:#8d84a8}
+  .steps span{letter-spacing:.06em}
+  .steps span.on{color:var(--text)}
+  .steps span.done{color:var(--gold)}
+  .steps i{flex:1;height:1px;background:#ffffff1c}
+  .steps i.done{background:#e7c77766}
+
+  .bar{position:relative;height:2px;background:#ffffff1a;overflow:hidden;border-radius:2px}
+  .bar>.fill{position:absolute;inset:0 auto 0 0;width:0;border-radius:2px;
+    background:linear-gradient(90deg,var(--violet),var(--gold));transition:width .5s ease}
+  .bar.unknown>.fill{width:34%!important;animation:slide 1.6s cubic-bezier(.45,0,.55,1) infinite}
+  @keyframes slide{0%{left:-34%}100%{left:100%}}
+
+  .meta{display:flex;justify-content:space-between;margin-top:10px;font-size:11px;color:var(--dim)}
+  .meta #stageText{color:#cfc7e4}
+
+  .hint{margin-top:18px;font-size:11px;color:#7d7495;letter-spacing:.04em;min-height:1.6em}
+  .hint b{color:var(--gold);font-weight:500}
+
+  .cta{margin-top:22px;min-width:168px;padding:10px 26px;border-radius:999px;cursor:pointer;
+    color:#100c18;font:600 14px/1 inherit;letter-spacing:.14em;
+    background:linear-gradient(120deg,#f2d79a,#e7c777 45%,#c9a2f0);
+    border:0;box-shadow:0 8px 30px #e7c77726;transition:transform .18s ease,opacity .2s}
+  .cta:hover:not(:disabled){transform:translateY(-1px)}
+  .cta:disabled{opacity:.28;cursor:default;box-shadow:none}
+
+  #error{display:none;margin-top:22px;padding:14px 16px;border:1px solid #ff7a7a40;border-radius:10px;
+    background:#ff7a7a0f;text-align:left}
+  #error.show{display:block}
+  #error .etitle{color:#ff9a9a;font-size:12px;letter-spacing:.08em;margin-bottom:6px}
+  #error .emsg{font:12px/1.7 ui-monospace,monospace;color:#f0d8d8;word-break:break-word;max-height:7.5em;overflow:auto}
+  #error .erow{display:flex;gap:10px;margin-top:12px}
+  #error button{padding:6px 14px;border-radius:8px;border:1px solid #ffffff26;background:#ffffff0d;
+    color:var(--text);font:12px/1 inherit;cursor:pointer}
+  #error button.primary{border-color:#e7c77766;color:var(--gold)}
+
+
+  /* Player chrome: a single quiet surface, with native form controls. */
+  :root{--shell-bg:#151619ed;--shell-fg:#eeeef0;--shell-muted:#a5a6ad;--shell-line:#ffffff16;--shell-accent:#d8c48e}
+  #hud,#panelDock,#moreMenu,#touchPanel{color:var(--shell-fg);background:var(--shell-bg);
+    border:1px solid var(--shell-line);box-shadow:0 6px 24px #0003;backdrop-filter:blur(16px)}
+  #hud{position:absolute;z-index:24;top:calc(12px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);
+    height:44px;max-width:calc(100% - 24px);display:flex;align-items:center;gap:4px;padding:0 6px 0 14px;
+    border-radius:14px;font-size:13px;white-space:nowrap;transition:opacity .16s,translate .16s}
+  #hud.hidden{opacity:0;pointer-events:none;translate:0 -8px}
+  #hud.is-off{display:none}
+  .shell-state{display:flex;align-items:center;gap:7px;padding-right:9px;font-size:13px}
+  #dot,.status-dot{width:5px;height:5px;background:#b7c1b6;border-radius:50%;flex:none}
+  #dot.busy{animation:pulse 1.4s infinite}#dot.bad{background:#f19999}
+  @keyframes pulse{50%{opacity:.3}}
+  .shell-fps{font:12px ui-monospace,monospace;color:var(--shell-muted);padding:0 10px 0 3px}
+  .shell-fps small{font:10px system-ui,sans-serif;margin-left:4px}
+  .shell-divider{height:18px;width:1px;background:var(--shell-line);margin-right:2px}
+  .shell-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:34px;
+    padding:6px 10px;border:0;border-radius:8px;background:transparent;color:inherit;font:inherit;font-size:13px;line-height:1.4;cursor:pointer}
+  .shell-button:hover{background:#ffffff0c}.shell-button:active{background:#ffffff14}
+  .shell-button[aria-pressed="true"],.shell-button[aria-expanded="true"]{color:var(--shell-accent);background:#d8c48e12}
+  .shell-button:focus-visible,#touchPanel:focus-visible{outline:2px solid var(--shell-accent);outline-offset:2px}
+  .shell-icon{pointer-events:none;width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+  #hud > .shell-button{width:34px;height:34px;padding:8px}
+  #moreMenu{position:absolute;right:0;top:calc(100% + 8px);width:188px;padding:6px;border-radius:12px;
+    display:flex;flex-direction:column;gap:2px;white-space:normal}
+  #moreMenu .shell-button{width:100%;height:auto;justify-content:flex-start;padding:9px 10px}
+  #panelDock{position:absolute;z-index:27;display:none;flex-direction:column;width:min(360px,calc(100% - 24px));
+    top:calc(66px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);
+    max-height:calc(100% - 82px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));
+    border-radius:16px;overflow:hidden;font-size:14px}
+  body.panel-open #panelDock{display:flex}
+  #panelHeader{display:flex;align-items:center;justify-content:space-between;min-height:56px;padding:8px 12px 8px 20px;flex:none}
+  #panelTitle{font-size:15px;font-weight:500;letter-spacing:.04em}
+  .shell-eyebrow{font-size:10px;letter-spacing:.16em;color:var(--shell-muted);margin-bottom:2px}
+  #panelClose{width:34px;height:34px;padding:8px}
+  .settings-tabs{display:flex;padding:0 16px;gap:22px;border-bottom:1px solid var(--shell-line);flex:none}
+  .settings-tabs button{position:relative;padding:11px 0;border:0;background:none;color:var(--shell-muted);font:inherit;font-size:13px;cursor:pointer}
+  .settings-tabs button[aria-selected="true"]{color:var(--shell-fg)}
+  .settings-tabs button[aria-selected="true"]:after{content:"";position:absolute;bottom:0;left:0;right:0;height:2px;background:var(--shell-accent)}
+  #settingsBody{overflow:auto;min-height:0;overscroll-behavior:contain;padding:4px 20px 18px}
+  .setting-row{padding:15px 0;border-bottom:1px solid var(--shell-line)}
+  .setting-label{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px;font-size:13px}
+  .setting-hint{color:var(--shell-muted);font-size:12px;line-height:1.6;margin:7px 0 0}
+  .setting-range{display:flex;gap:14px;align-items:center}
+  #settingsBody input[type="range"]{appearance:none;width:100%;min-width:0;margin:0;padding:0;border:0;
+    background:transparent;height:24px;cursor:ew-resize;touch-action:pan-y}
+  #settingsBody input[type="range"]::-webkit-slider-runnable-track{height:4px;border-radius:2px;
+    background:linear-gradient(to right,var(--shell-accent) var(--range-progress,0%),#ffffff30 var(--range-progress,0%))}
+  #settingsBody input[type="range"]::-webkit-slider-thumb{appearance:none;width:16px;height:16px;margin-top:-6px;
+    border:0;border-radius:50%;background:var(--shell-accent)}
+  #settingsBody input[type="range"]::-moz-range-track{height:4px;border-radius:2px;background:#ffffff30}
+  #settingsBody input[type="range"]::-moz-range-progress{height:4px;background:var(--shell-accent)}
+  #settingsBody input[type="range"]::-moz-range-thumb{width:16px;height:16px;border:0;border-radius:50%;background:var(--shell-accent)}
+  body.touch-mode #settingsBody input[type="range"]::-webkit-slider-thumb{width:20px;height:20px;margin-top:-8px}
+  body.touch-mode #settingsBody input[type="range"]::-moz-range-thumb{width:20px;height:20px}
+  #settingsBody input[type="number"],#settingsBody select{border:1px solid var(--shell-line);border-radius:7px;color:var(--shell-fg);
+    background:#ffffff05;font:inherit;font-size:13px;line-height:1.4;min-height:32px;padding:5px 8px;color-scheme:dark}
+  #settingsBody input[type="number"]{width:68px;font-family:ui-monospace,monospace;flex:none;appearance:textfield;-moz-appearance:textfield}
+  #settingsBody input[type="number"]::-webkit-inner-spin-button,
+  #settingsBody input[type="number"]::-webkit-outer-spin-button{appearance:none;-webkit-appearance:none;margin:0}
+  #settingsBody select{width:100%}
+  #settingsBody select option{background:#25262a;color:#eeeef0}
+  #settingsBody input[type="checkbox"]{appearance:none;width:32px;height:19px;border-radius:12px;background:#ffffff24;position:relative;cursor:pointer;flex:none}
+  #settingsBody input[type="checkbox"]:after{content:"";position:absolute;width:13px;height:13px;border-radius:50%;background:#d3d3d5;top:3px;left:3px;transition:translate .15s}
+  #settingsBody input[type="checkbox"]:checked{background:#d8c48e99}
+  #settingsBody input[type="checkbox"]:checked:after{translate:13px 0;background:#fff}
+  .setting-row.switch-row{display:flex;align-items:center;justify-content:space-between;gap:14px}
+  .setting-row.switch-row .setting-label{margin:0}
+  .settings-reset{margin-top:16px;color:var(--shell-muted);font-size:12px}
+  .panel-note{white-space:pre-line;color:var(--shell-muted);font-size:12px;line-height:1.9;margin:12px 0}
+  #diagnostics{margin-top:14px}#diagnostics summary{cursor:pointer;padding:8px 0}
+  #diagValues{display:grid;grid-template-columns:62px 1fr;gap:8px;font:12px/1.6 ui-monospace,monospace;color:var(--shell-muted)}
+  #diagValues dd{margin:0;overflow-wrap:anywhere}
+  #resetConfirm,#reportFallback{padding:12px;background:#ffffff06;border-radius:8px;margin-top:12px;font-size:13px}
+  #reportText{width:100%;height:120px;background:#0d0e10;color:var(--shell-fg);border:1px solid var(--shell-line);border-radius:6px}
+  #panelBackdrop{position:absolute;inset:0;z-index:26;display:none;background:#0005;touch-action:none}
+  body.panel-modal #panelBackdrop{display:block}
+  #touchPanel{display:none;position:absolute;z-index:28;width:48px;height:48px;border-radius:50%;padding:14px;
+    touch-action:none;user-select:none;cursor:grab;opacity:1;transition:opacity .18s,left .18s,top .18s}
+  #touchPanel.dragging{transition:none}
+  #touchPanel.idle{opacity:.4}#touchPanel:not(.idle):hover,#touchPanel:not(.idle):focus-visible{opacity:1}
+  #touchbar{display:none;flex:none;padding:0 16px 12px;gap:6px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--shell-line)}
+  #touchbar .mobile-state{display:flex;align-items:center;justify-content:space-between;width:100%;color:var(--shell-muted);font-size:12px;padding-bottom:8px}
+  body.touch-mode #hud{display:none}
+  body.touch-mode #touchPanel{display:flex}
+  body.touch-mode #panelDock{width:min(340px,calc(100% - 24px));left:auto;right:calc(12px + env(safe-area-inset-right,0px));transform:none;
+    top:calc(12px + env(safe-area-inset-top,0px));bottom:calc(12px + env(safe-area-inset-bottom,0px));max-height:none}
+  body.touch-mode.ball-left #panelDock{right:auto;left:calc(12px + env(safe-area-inset-left,0px))}
+  body.touch-mode #touchbar{display:flex}
+  body.touch-mode .shell-button,body.touch-mode #panelClose{min-height:44px;min-width:44px}
+  body.touch-mode .settings-tabs button{min-height:44px}
+  body.touch-mode #settingsBody input[type="range"]{height:44px}
+  body.touch-mode #settingsBody input[type="number"],body.touch-mode #settingsBody select{font-size:16px;min-height:44px}
+  body.touch-mode .switch-row{min-height:60px}
+  body.panel-modal #touchPanel{visibility:hidden}
+  #shellNotice{position:absolute;z-index:45;left:50%;bottom:24px;transform:translateX(-50%);max-width:calc(100% - 24px);
+    background:#25262aee;border:1px solid var(--shell-line);border-radius:10px;padding:8px 14px;font-size:13px;pointer-events:none}
+  [hidden]{display:none!important}
+
+  /* ---------- log drawer ---------- */
+  #console{position:absolute;left:0;right:0;bottom:0;z-index:40;max-height:46vh;display:flex;
+    flex-direction:column;background:#08060ef2;border-top:1px solid var(--line);
+    backdrop-filter:blur(10px);transform:translateY(101%);transition:transform .28s ease}
+  #console.open{transform:none}
+  #console header{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid #ffffff0d}
+  #console header b{font-size:12px;font-weight:500;color:#cfc7e4;letter-spacing:.06em}
+  #console header .sp{flex:1}
+  #console header button{padding:4px 10px;border-radius:6px;border:1px solid var(--line);
+    background:#ffffff08;color:#b9b0cf;font:11px/1.3 inherit;cursor:pointer}
+  #consoleBody{margin:0;padding:10px 14px calc(14px + env(safe-area-inset-bottom,0px));
+    overflow:auto;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;
+    color:#a79fbe;white-space:pre-wrap;word-break:break-word}
+
+  #rotate{position:absolute;inset:auto 0 18px;text-align:center;font-size:12px;color:var(--dim);
+    z-index:25;display:none}
+  @media (max-aspect-ratio:4/5) and (max-width:640px){#rotate{display:block}}
+
+  #saveTransfer{padding-bottom:18px;margin-bottom:18px;border-bottom:1px solid var(--line)}
+  #saveTransfer h3{margin:0 0 10px;font-size:16px}
+  .save-transfer-actions{display:flex;flex-wrap:wrap;gap:10px}
+  #saveImportConfirm{margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:8px}
+  #saveTransferStatus{overflow-wrap:anywhere;margin-bottom:0}
+
+  #fatal{display:none;position:fixed;inset:0;z-index:35;background:#100c1c99;
+    align-items:center;justify-content:center;padding:24px}
+  #fatal.show{display:flex}
+  #fatal .fault-card{width:min(620px,100%);padding:26px;border:1px solid #ff99994d;
+    border-radius:14px;background:#1b1528;box-shadow:0 20px 80px #0008}
+  #fatal h2{margin:0 0 12px;font-size:21px;color:#ffb4b4}
+  #fatal p{font-size:14px;line-height:1.6;color:var(--dim)}
+  #fatal pre{max-height:35vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;
+    font:12px/1.6 ui-monospace,monospace;color:#eee0e0}
+  #fatal .fault-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+  #fatal button{padding:9px 14px;border:1px solid #ffffff35;border-radius:8px;
+    background:#ffffff0d;color:var(--text);cursor:pointer}
+  #fatal button:disabled{opacity:.45;cursor:default}
+  #fatal [role="status"]{margin-bottom:0}
+  .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important}
+  }
+</style>
+</head><body>
+<div id="app">
+  <div id="stage">
+    <div id="screen"><canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas></div>
+    <div id="veil" data-shell="veil" aria-hidden="true"></div>
+  </div>
+
+
+  <div id="hud" data-shell="hud" role="group" aria-label="播放器控制">
+    <span class="shell-state"><span id="dot"></span><span id="pillText">启动中</span></span>
+    <span class="shell-fps" id="fps"><span id="fpsValue" data-fps-value>—</span><small>FPS</small></span>
+    <span class="shell-divider" aria-hidden="true"></span>
+    <button id="btnFullscreen" class="shell-button" type="button" data-icon="fullscreen" aria-label="全屏" title="全屏 (Alt+Enter)"></button>
+    <button id="btnPanel" class="shell-button" type="button" data-icon="settings" aria-label="设置" title="设置 (F2)" aria-controls="panelDock" aria-expanded="false"></button>
+    <button id="btnMore" class="shell-button" type="button" data-icon="more" aria-label="更多" title="更多操作" aria-controls="moreMenu" aria-expanded="false"></button>
+    <div id="moreMenu" role="group" aria-label="更多操作" hidden>
+      <button class="shell-button" type="button" data-action="back" data-icon="back">回看</button>
+      <button class="shell-button" type="button" data-action="skip" data-icon="skip" aria-pressed="false">锁定快进</button>
+      <button class="shell-button" type="button" data-action="help" data-icon="help">操作帮助</button>
+      <button class="shell-button" id="btnLog" type="button" data-icon="log">启动日志</button>
+    </div>
+  </div>
+  <div id="panelBackdrop" data-shell="backdrop" aria-hidden="true"></div>
+  <section id="panelDock" data-shell="panel" role="region" aria-labelledby="panelTitle">
+    <header id="panelHeader"><div><div class="shell-eyebrow">PLAYER SETTINGS</div><span id="panelTitle">播放设置</span></div>
+      <button id="panelClose" class="shell-button" type="button" data-icon="close" aria-label="关闭设置" title="关闭 (Esc)"></button></header>
+    <div id="touchbar" role="group" aria-label="快捷操作">
+      <div class="mobile-state"><span data-status>启动中</span><span data-mobile-fps><span data-fps-value>—</span> FPS</span></div>
+      <button id="touchBack" class="shell-button" type="button" data-action="back" data-icon="back">回看</button>
+      <button id="touchSkip" class="shell-button" type="button" data-action="skip" data-icon="skip" aria-pressed="false">快进</button>
+      <button class="shell-button" type="button" data-action="fullscreen" data-icon="fullscreen" aria-label="切换全屏"></button>
+    </div>
+    <nav class="settings-tabs" role="tablist" aria-label="设置分类">
+      <button id="tab-picture" type="button" role="tab" aria-controls="pane-picture" aria-selected="true" data-tab="picture">画面</button>
+      <button id="tab-input" type="button" role="tab" aria-controls="pane-input" aria-selected="false" data-tab="input" tabindex="-1">交互</button>
+      <button id="tab-more" type="button" role="tab" aria-controls="pane-more" aria-selected="false" data-tab="more" tabindex="-1">更多</button>
+    </nav>
+    <div id="settingsBody">
+      <div id="pane-picture" role="tabpanel" aria-labelledby="tab-picture"></div>
+      <div id="pane-input" role="tabpanel" aria-labelledby="tab-input" hidden></div>
+      <div id="pane-more" role="tabpanel" aria-labelledby="tab-more" hidden>
+        <section id="saveTransfer" aria-labelledby="saveTransferTitle">
+          <h3 id="saveTransferTitle">存档备份与转移</h3>
+          <p class="panel-note">请先在游戏内存档，再导出备份。可在其他浏览器或设备导入，包含存档、缩略图和游戏设置，不包含游戏资源包。</p>
+          <div class="save-transfer-actions">
+            <button id="saveExport" class="shell-button" type="button">导出存档</button>
+            <button id="saveImport" class="shell-button" type="button">导入存档</button>
+            <button id="saveRecoveryExport" class="shell-button" type="button" hidden>导出导入前备份</button>
+          </div>
+          <input id="saveImportFile" type="file" accept=".json,application/json" hidden>
+          <div id="saveImportConfirm" hidden>
+            <p id="saveImportSummary" class="panel-note"></p>
+            <p class="panel-note">同名存档和系统数据将被覆盖，其他文件保留；导入前会自动保留当前存档备份。导入后页面重启，请再从游戏内读档。</p>
+            <button id="saveImportAccept" class="shell-button" type="button">导入并重启</button>
+            <button id="saveImportCancel" class="shell-button" type="button">取消</button>
+          </div>
+          <p id="saveTransferStatus" class="panel-note" role="status" aria-live="polite"></p>
+        </section>
+        <p id="operationHelp" class="panel-note"></p>
+        <details id="diagnostics"><summary>详细诊断</summary><dl id="diagValues"></dl>
+          <button class="shell-button" type="button" data-action="copy" data-icon="copy">复制诊断</button>
+          <button class="shell-button" type="button" data-action="perf-toggle">开始性能记录</button>
+          <label>设备型号 <input id="perfDeviceModel" type="text" maxlength="80" placeholder="手机系统未提供时填写"></label>
+          <button class="shell-button" type="button" data-action="perf-export">导出性能报告</button>
+          <button class="shell-button" type="button" data-action="log" data-icon="log">打开日志</button></details>
+        <div id="devDock" hidden><p id="devStatus" class="panel-note"></p><button id="panelRetry" class="shell-button" type="button">重试调试面板</button></div>
+        <button class="shell-button settings-reset" type="button" data-action="reset-all">恢复全部默认</button>
+        <div id="resetConfirm" hidden><p>恢复全部外壳设置？游戏设置和存档不受影响。</p>
+          <button id="resetAccept" class="shell-button" type="button">确认恢复</button><button id="resetCancel" class="shell-button" type="button">取消</button></div>
+        <div id="reportFallback" hidden><label for="reportText">请选中并复制诊断文本</label><textarea id="reportText" readonly></textarea>
+          <button id="reportClose" class="shell-button" type="button">关闭诊断文本</button></div>
+      </div>
+    </div>
+  </section>
+  <button id="touchPanel" data-shell="entry" type="button" data-icon="settings" aria-label="打开播放设置" aria-controls="panelDock" aria-expanded="false"></button>
+  <div id="shellNotice" data-shell="notice" role="status" hidden></div>
+
+
+  <section id="splash" aria-label="启动">
+    <div class="card">
+      <div class="eyebrow">Sabbat of the Witch</div>
+      <h1 class="title">魔女的夜宴</h1>
+      <div class="sub">Web 移植测试</div>
+      <div class="badge">Powered by krkrsdl2 · WASM</div>
+
+      <div class="steps" id="steps">
+        <span data-step="index">资源索引</span><i data-after="index"></i>
+        <span data-step="engine">引擎</span><i data-after="engine"></i>
+        <span data-step="boot">启动</span><i data-after="boot"></i>
+        <span data-step="frame">画面</span>
+      </div>
+      <div class="bar" id="bar"><div class="fill" id="fill"></div></div>
+      <div class="meta"><span id="stageText">正在准备…</span><span id="elapsed">0.0s</span></div>
+
+      <div id="error" role="alert">
+        <div class="etitle">启动失败</div>
+        <div class="emsg" id="errorMsg"></div>
+        <div class="erow">
+          <button class="primary" id="btnRetry" type="button">重试</button>
+          <button id="btnErrorLog" type="button">查看日志</button>
+        </div>
+      </div>
+
+      <div class="hint" id="hint">正在载入本地资源索引…</div>
+      <button class="cta" id="enter" type="button" disabled>正在启动</button>
+    </div>
+  </section>
+
+  <section id="fatal" role="dialog" aria-modal="true" aria-labelledby="fatalTitle">
+    <div class="fault-card">
+      <h2 id="fatalTitle">发生错误，剧情已暂停</h2>
+      <p id="fatalHint">错误现场已保留。可以复制日志、返回标题，或重新启动游戏。</p>
+      <pre id="fatalMessage"></pre>
+      <div class="fault-actions">
+        <button id="fatalCopy" type="button">复制日志</button>
+        <button id="fatalReturn" type="button">返回标题</button>
+        <button id="fatalRestart" type="button">重新启动</button>
+      </div>
+      <p id="fatalStatus" role="status" aria-live="polite"></p>
+    </div>
+  </section>
+
+  <aside id="console" aria-label="启动日志" aria-hidden="true" inert>
+    <header>
+      <b>启动日志</b><span class="sp"></span>
+      <button id="btnCopy" type="button">复制</button>
+      <button id="btnCloseLog" type="button">关闭</button>
+    </header>
+    <pre id="consoleBody"></pre>
+  </aside>
+
+  <div id="rotate">建议横屏游玩</div>
+  <span id="status" class="sr" aria-live="polite">正在准备引擎…</span>
+</div>
+<script>window.__SABBAT_RELEASE="./releases/v1.0.0/release.json";</script><script src="releases/v1.0.0/runtime.js"></script><script src="releases/v1.0.0/video.js"></script><script src="releases/v1.0.0/ui-panel.js"></script><script src="assets/985536e85713083ea2b0bb4744398d4d42b456ff714105bdefed78973bbd0328.js" onload="Sabbat.start()"></script>
+</body></html>

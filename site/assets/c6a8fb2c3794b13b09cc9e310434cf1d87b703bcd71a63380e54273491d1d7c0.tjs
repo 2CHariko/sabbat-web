@@ -1,0 +1,490 @@
+// Sabbat Web: a bounded TextRenderBase replacement for textrender.tjs.
+// The original adapter (offline data/3930.bin) still performs Layer.drawText.
+// This class supplies real per-character layout records, not an empty renderer.
+// Minimum native-DLL-verified horizontal contract: font/reset/alignment markup,
+// escaped text/newlines, wrapping, cumulative reveal times, waits and snapshots.
+// Single-base ruby, vertical columns and configured kinsoku are also measured
+// against the shipped DLL. Inline images, links and language word breaking
+// remain incomplete. This is not native save compatibility.
+
+class TextRenderBase {
+    var defaultFace = "normal", _trDefaultFontSize = 24;
+    // MultiLangMsgwinRender reads (TextRenderBase incontextof this).defaultFontSize
+    // when auto-shrinking overflowing dialogue. Native properties dispatch to
+    // that bound instance; a plain TJS var only exists on the instance itself.
+    property defaultFontSize {
+        getter() { return this._trDefaultFontSize; }
+        setter(value) { this._trDefaultFontSize = value; }
+    }
+    var defaultBigFontSize = 48, defaultSmallFontSize = 12;
+    var defaultLineSize = 24, defaultLineSpacing = 6, defaultPitch = 0;
+    var defaultAlign = -1, defaultValign = -1;
+    var defaultRubySize = 10, defaultRubyOffset = -2;
+    var defaultChColor = 0xffffffff, defaultShadow = true;
+    var defaultShadowColor = 0xff000000, defaultShadowDiff = 1;
+    var defaultEdge = false, defaultEdgeColor = 0xff0080ff;
+    var defaultBold = false, defaultItalic = false;
+    var timeScale = 1, fontScale = 1;
+    var vertical = false;
+    var renderOver = false, renderLines = 0, renderCount = 0;
+    var renderLeft = 0, renderTop = 0;
+    var renderRight = 0, renderBottom = 0, renderText = "";
+    var maxScrollOffset = 0, maxScrollLine = 0;
+    var _trOptions, _trFont, _trStyle, _trChars;
+    var _trWidth = 0, _trHeight = 0, _trX = 0, _trY = 0;
+    var _trLineHeight = 0, _trLineStart = 0, _trLines;
+    var _trDone = false, _trDelay = 0, _trWaits;
+    var _trIndent = 0, _trNextIndent = 0, _trIndentStack;
+    var _trHanging = 0, _trReplayRight = 0;
+    property renderDelay { getter() { return _trDelay * timeScale; } }
+    // Opt-in block centering, set by the startup patch right before a select
+    // button draws its caption. Nonzero values make done() place the laid-out
+    // block in the middle of that rect. The select layer's character-render
+    // path has no text area of its own, so it would otherwise start at the
+    // button layer origin. clear() must not reset this: the adapter calls
+    // clear() after the caller has set it.
+    var centerWidth = 0, centerHeight = 0;
+
+    function TextRenderBase() {
+        _trOptions = %[];
+        _trFont = %[];
+        _trStyle = %[];
+        // Native base construction must not dispatch into MsgwinRender.clear:
+        // derived constructors have not assigned their kag/window fields yet.
+        (global.TextRenderBase.clear incontextof this)();
+    }
+
+    function finalize() {}
+
+    function setOption(options) {
+        if (typeof options == "Object" && options !== null) {
+            if (options.vertical !== void) vertical = options.vertical;
+            (Dictionary.assign incontextof _trOptions)(options, false);
+        }
+    }
+
+    function setDefault(options) {
+        if (typeof options != "Object" || options === null) return;
+        var keys = ["face", "fontsize", "bigfontsize", "smallfontsize",
+            "linesize", "linespacing", "pitch", "align", "valign",
+            "rubysize", "rubyoffset", "color", "shadow", "shadowcolor",
+            "shadowdiff", "edge", "edgecolor", "bold", "italic"];
+        var props = ["defaultFace", "defaultFontSize", "defaultBigFontSize",
+            "defaultSmallFontSize", "defaultLineSize", "defaultLineSpacing",
+            "defaultPitch", "defaultAlign", "defaultValign", "defaultRubySize",
+            "defaultRubyOffset", "defaultChColor", "defaultShadow",
+            "defaultShadowColor", "defaultShadowDiff", "defaultEdge",
+            "defaultEdgeColor", "defaultBold", "defaultItalic"];
+        for (var i = 0; i < keys.count; i++) {
+            if (options[keys[i]] !== void) this[props[i]] = options[keys[i]];
+        }
+        resetFont();
+        resetStyle();
+    }
+
+    function setRenderSize(width, height) {
+        _trWidth = Math.max(0, +width);
+        _trHeight = Math.max(0, +height);
+        (global.TextRenderBase.clear incontextof this)();
+    }
+
+    function resetFont() {
+        _trFont = %[face:defaultFace, size:defaultFontSize,
+            bold:defaultBold, italic:defaultItalic, color:defaultChColor,
+            shadow:defaultShadow,shadowColor:defaultShadowColor,
+            shadowDiff:defaultShadowDiff,edge:defaultEdge,edgeColor:defaultEdgeColor];
+    }
+
+    function resetStyle() {
+        _trStyle = %[color:defaultChColor, shadow:defaultShadow,
+            shadowColor:defaultShadowColor, shadowDiff:defaultShadowDiff,
+            edge:defaultEdge, edgeColor:defaultEdgeColor,
+            pitch:defaultPitch, linespacing:defaultLineSpacing,
+            linesize:defaultLineSize, align:defaultAlign, valign:defaultValign];
+    }
+
+    function setFont(options) {
+        _trSetFontOptions(options);
+    }
+
+    function _trSetFontOptions(options) {
+        if (typeof options != "Object" || options === null) return;
+        if (options.face !== void) _trFont.face = options.face;
+        if (options.size !== void) _trFont.size = options.size;
+        if (options.fontsize !== void) _trFont.size = options.fontsize;
+        if (options.height !== void) _trFont.size = options.height;
+        if (options.bold !== void) _trFont.bold = options.bold;
+        if (options.italic !== void) _trFont.italic = options.italic;
+        if (options.color !== void) _trFont.color = options.color;
+        if (options.shadow !== void) _trFont.shadow = options.shadow;
+        if (options.shadowcolor !== void) _trFont.shadowColor = options.shadowcolor;
+        if (options.shadowdiff !== void) _trFont.shadowDiff = options.shadowdiff;
+        if (options.edge !== void) _trFont.edge = options.edge;
+        if (options.edgecolor !== void) _trFont.edgeColor = options.edgecolor;
+    }
+
+    function setStyle(options) {
+        if (typeof options != "Object" || options === null) return;
+        (Dictionary.assign incontextof _trStyle)(options, false);
+        // Native option dictionaries use lowercase names; draw records use
+        // camel case, as read by the original adapter's internalDrawText.
+        if (options.shadowcolor !== void) _trStyle.shadowColor = options.shadowcolor;
+        if (options.shadowdiff !== void) _trStyle.shadowDiff = options.shadowdiff;
+        if (options.edgecolor !== void) _trStyle.edgeColor = options.edgecolor;
+        // TextRender.setFont overrides the public method to attach a native
+        // Font object, so internal option updates must not dispatch through it.
+        _trSetFontOptions(options);
+    }
+
+    function clear() {
+        _trChars = [];
+        _trLines = [];
+        _trWaits = [];
+        _trIndentStack = [];
+        _trIndent = _trNextIndent = _trHanging = _trReplayRight = 0;
+        _trX = _trY = _trLineHeight = _trLineStart = 0;
+        _trDone = false;
+        renderOver = false;
+        renderLines = renderCount = _trDelay = 0;
+        renderLeft = renderRight = vertical ? _trWidth : 0;
+        renderTop = renderBottom = 0;
+        maxScrollOffset = maxScrollLine = 0;
+        renderText = "";
+        resetFont();
+        resetStyle();
+    }
+
+    // Adapter overrides these to measure through the currently selected Font.
+    function onFontChange(style) {}
+    function onGetTextWidth(text, size) { return size * text.length; }
+    function onGetTextHeight(text, size) { return size; }
+
+    function _trSize() {
+        return Math.max(1, Math.abs(+_trFont.size * +fontScale));
+    }
+
+    function _trFinishLine() {
+        if (_trChars.count == _trLineStart) return;
+        var h = +_trStyle.linesize * fontScale;
+        for(var i=_trLineStart;i<_trChars.count;i++) h = Math.max(h,_trChars[i].size);
+        var limit = vertical ? _trHeight : _trWidth;
+        var shift = _trIndent, crossShift = 0;
+        if (_trStyle.align == 0 || _trStyle.align == "center")
+            {shift = Math.floor((limit - (_trX-_trIndent)) / 2); crossShift=h/2;}
+        else if (_trStyle.align == 1 || _trStyle.align == "right")
+            {shift = limit - (_trX-_trIndent); crossShift=h;}
+        var space = vertical ? _trSize() : +onGetTextWidth("　", _trSize());
+        if (space > 0 && shift > 0) {
+            var spaces = Math.floor(shift / space);
+            if (spaces > 65536) throw new Exception("TextRenderBase: excessive alignment padding");
+            for(var i=0;i<spaces;i++) renderText += "　";
+        }
+        for(var i=_trLineStart;i<_trChars.count;i++) {
+            var ch=_trChars[i];
+            if(vertical) {
+                ch.y = ch.x - _trIndent + shift;
+                ch.x = _trWidth - _trY - crossShift;
+            } else {
+                ch.x += shift - _trIndent;
+                ch.y = _trY + h - ch.size;
+            }
+            ch.left = ch.x;
+            ch.top = ch.y;
+            renderText += ch.text;
+        }
+        renderText += "\n";
+        _trLines.add(%[start:_trLineStart, end:_trChars.count,
+            width:_trX, top:_trY, height:h, align:_trStyle.align]);
+        _trY += h + (+_trStyle.linespacing);
+        _trIndent = _trNextIndent;
+        _trX = _trIndent;
+        _trHanging = 0;
+        _trLineHeight = 0;
+        _trLineStart = _trChars.count;
+    }
+
+    function _trHasOption(name, text) {
+        return _trOptions[name] !== void && ((string)_trOptions[name]).indexOf(text) >= 0;
+    }
+
+    // Move unpublished records between lines without replaying their timing.
+    // The DLL retains temporary pen extents in its horizontal bounds.
+    function _trCarry(index) {
+        var carry=[];
+        for(var j=index;j<_trChars.count;j++) carry.add(_trChars[j]);
+        _trChars.count=index;
+        _trX=_trIndent;
+        for(var j=_trLineStart;j<_trChars.count;j++) _trX+=_trChars[j]._trAdvance;
+        _trFinishLine();
+        for(var j=0;j<carry.count;j++) {
+            var c=carry[j];c.x=_trX;_trChars.add(c);_trX+=c._trAdvance;
+        }
+    }
+
+    function newline() {
+        if (_trDone) throw new Exception("TextRenderBase: clear before appending after done");
+        _trFinishLine();
+    }
+
+    function render(text, autoIndent = 0, diff = 0, time = 0, same = false, reserved = 0) {
+        if (_trDone) throw new Exception("TextRenderBase: clear before appending after done");
+        text = (string)text;
+        if (text.length + _trChars.count > 65536)
+            throw new Exception("TextRenderBase: 65536 character layout limit exceeded");
+        var before = _trChars.count;
+        // The DLL starts a new time segment for every render call. same keeps
+        // earlier character times; otherwise already published times reset.
+        if (!same) for(var i=0;i<before;i++) _trChars[i].delay = _trChars[i].time = 0;
+        var delay = 0, step = +diff, rubyPending = void;
+        _trDelay = 0;
+        for (var i = 0; i < text.length; i++) {
+            var ch = text.charAt(i);
+            var escaped = false;
+            if(ch == "\\" && i+1 < text.length) {
+                ch = text.charAt(++i);
+                escaped = true;
+                if(ch == "n") { _trFinishLine(); continue; }
+                if(ch == "k") { _trWaits.add(%[pos:_trChars.count,time:delay]); continue; }
+                if(ch == "x") continue;
+                if(ch == "t") ch = "\t";
+            }
+            if (ch == "\r") {
+                if (i + 1 < text.length && text.charAt(i + 1) == "\n") i++;
+                _trFinishLine();
+                continue;
+            }
+            if (ch == "\n") {
+                _trFinishLine();
+                continue;
+            }
+            if (!escaped && ch == "%" && i + 1 < text.length) {
+                var next = text.charAt(++i);
+                if(next == "r") { resetFont(); continue; }
+                if(next == "S") { _trFont.size=defaultSmallFontSize; continue; }
+                if(next == "B") { _trFont.size=defaultBigFontSize; continue; }
+                if(next == "C") { _trStyle.align=0; continue; }
+                if(next == "R") { _trStyle.align=1; continue; }
+                if(next == "L") { _trStyle.align=-1; continue; }
+                if(next == "b" || next == "i" || next == "s" || next == "e") {
+                    var flag=text.charAt(++i), key, fallback;
+                    if(next=="b") {key="bold";fallback=defaultBold;}
+                    if(next=="i") {key="italic";fallback=defaultItalic;}
+                    if(next=="s") {key="shadow";fallback=defaultShadow;}
+                    if(next=="e") {key="edge";fallback=defaultEdge;}
+                    _trFont[key] = flag=="0" ? false : flag=="1" ? true : fallback;
+                    continue;
+                }
+                var end=text.indexOf(";",i);
+                if(next == "f") {
+                    if(end<0) break;
+                    _trFont.face=text.substr(i+1,end-i-1);i=end;continue;
+                }
+                if(next == "p" || next == "d" || next == "w" || next == "D" ||
+                    (next >= "0" && next <= "9")) {
+                    if(end<0) break;
+                    var numericStart = next >= "0" && next <= "9" ? i : i+1;
+                    var value = +text.substr(numericStart,end-numericStart);
+                    if(value != value || Math.abs(value)>1000000000)
+                        throw new Exception("TextRenderBase: invalid numeric format");
+                    if(next=="p") _trStyle.pitch=value;
+                    else if(next=="d") step=diff*value/100;
+                    else if(next=="w") {if(!_trOptions.ignore_delay)delay+=diff*value/100;}
+                    else if(next=="D") {if(!_trOptions.ignore_delay)delay=Math.max(delay,value);}
+                    else _trFont.size=defaultFontSize*value/100;
+                    i=end;continue;
+                }
+                // The measured DLL stops at an unknown percent command,
+                // including %%. A literal percent is escaped with backslash.
+                break;
+            }
+            if(!escaped && ch=="#") {
+                var end=text.indexOf(";",i);
+                if(end<0) break;
+                _trFont.color=(int)("0x"+text.substr(i+1,end-i-1)) | 0xff000000;
+                i=end;continue;
+            }
+            if(!escaped && ch=="[") {
+                var end=text.indexOf("]",i);
+                if(end<0) break;
+                rubyPending=text.substr(i+1,end-i-1);
+                // This DLL stops on the comma-count form; do not infer the
+                // contract of another TextRender implementation here.
+                if(rubyPending.indexOf(",")>=0) break;
+                i=end;continue;
+            }
+            var size = _trSize();
+            var style = %[face:_trFont.face, size:size,
+                bold:_trFont.bold, italic:_trFont.italic];
+            onFontChange(style);
+            var width = +onGetTextWidth(ch, size);
+            if (width < 0) throw new Exception("TextRenderBase: negative character width");
+            var advance=(vertical ? size : width)+(+_trStyle.pitch);
+            var limit=vertical ? _trHeight : _trWidth;
+            var following=_trHasOption("following",ch) || (autoIndent!=0 && _trHasOption("end",ch));
+            var overflow=limit>0 && _trX>0 && _trX+advance>=limit;
+            if(following && overflow) {
+                var max=_trOptions.kinsoku_max === void ? 1 : Math.max(0,+_trOptions.kinsoku_max);
+                if(_trHanging>=max && _trChars.count>_trLineStart) {
+                    var index=_trChars.count-_trHanging-1;
+                    if(index>=_trLineStart && !_trHasOption("following",_trChars[index].text)
+                        && !(autoIndent!=0 && _trHasOption("end",_trChars[index].text))) {
+                        _trCarry(index);
+                    } else {
+                        if(!vertical) {
+                            var extra=0;
+                            for(var j=Math.max(_trLineStart,_trChars.count-_trHanging);j<_trChars.count;j++)
+                                extra+=_trChars[j]._trAdvance;
+                            _trReplayRight=Math.max(_trReplayRight,_trX+extra);
+                        }
+                        _trFinishLine();
+                    }
+                }
+                if(_trX+advance>=limit) _trHanging++;
+            } else if(overflow) {
+                var index=_trChars.count;
+                // Measured DLL carries only the final leading-prohibited
+                // character, even for a run and with kinsoku_max=0 or 2.
+                if(index>_trLineStart+1 && _trHasOption("leading",_trChars[index-1].text)) index--;
+                if(index<_trChars.count) _trCarry(index);
+                else _trFinishLine();
+            }
+            var ruby=void;
+            if(rubyPending!==void) {
+                var rs=defaultRubySize*fontScale;
+                var rw=+onGetTextWidth(rubyPending,rs);
+                ruby=[%[text:rubyPending,size:rs,
+                    x:vertical ? rs+defaultRubyOffset : (width-rw)/2,
+                    y:vertical ? (size-rubyPending.length*rs)/2 : -(rs+defaultRubyOffset)]];
+                rubyPending=void;
+            }
+            _trChars.add(%[x:_trX, y:_trY, left:_trX, top:_trY,
+                width:width, cw:width, height:size, text:ch, size:size,
+                face:style.face, bold:style.bold, italic:style.italic,
+                vertical:vertical, color:_trFont.color,
+                shadow:_trFont.shadow, shadowColor:_trFont.shadowColor,
+                shadowDiff:_trFont.shadowDiff, edge:_trFont.edge,
+                edgeColor:_trFont.edgeColor, graph:false, ruby:ruby,
+                time:delay, delay:delay, _trOrder:_trChars.count, _trAdvance:advance, link:"", linkName:""]);
+            _trX += advance;
+            if(!vertical) _trReplayRight=Math.max(_trReplayRight,_trX-(+_trStyle.pitch));
+            if(autoIndent!=0 && _trHasOption("begin",ch)) {
+                _trIndentStack.add(_trNextIndent);_trNextIndent=_trX;
+            }
+            if(autoIndent!=0 && _trHasOption("end",ch))
+                _trNextIndent=_trIndentStack.count ? _trIndentStack.pop() : 0;
+            _trLineHeight = Math.max(_trLineHeight, size);
+            _trDelay = delay + diff;
+            delay += step;
+        }
+        if(time>0) {
+            var factor = _trDelay != 0 ? time/_trDelay : 0;
+            for(var i=before;i<_trChars.count;i++) {
+                _trChars[i].delay *= factor;
+                _trChars[i].time = _trChars[i].delay;
+            }
+            _trDelay = time;
+        }
+        renderCount = _trChars.count;
+        return !renderOver;
+    }
+
+    function done() {
+        if (_trDone) return renderCount;
+        if (_trChars.count > _trLineStart || _trLines.count == 0)
+            _trFinishLine();
+        renderLines = _trLines.count;
+        var bottom = 0;
+        if (_trLines.count > 0) {
+            var last = _trLines[_trLines.count - 1];
+            bottom = last.top + last.height;
+        }
+        var yshift = 0;
+        if (!vertical && _trHeight > bottom) {
+            if (_trStyle.valign == 0 || _trStyle.valign == "center")
+                yshift = Math.floor((_trHeight - bottom) / 2);
+            else if (_trStyle.valign == 1 || _trStyle.valign == "bottom")
+                yshift = _trHeight - bottom;
+        }
+        if (_trChars.count > 0) {
+            renderLeft = renderTop = 0x7fffffff;
+            renderRight = renderBottom = -0x7fffffff;
+            for (var i = 0; i < _trChars.count; i++) {
+                var ch = _trChars[i];
+                ch.y += yshift;
+                ch.top = ch.y;
+                renderLeft = Math.min(renderLeft, vertical ? ch.x-ch.width : ch.x);
+                renderTop = Math.min(renderTop, ch.y);
+                renderRight = Math.max(renderRight, vertical ? ch.x : ch.x + ch.width);
+                renderBottom = Math.max(renderBottom, ch.y + (vertical ? ch.size : ch.height));
+                if(ch.ruby!==void) for(var j=0;j<ch.ruby.count;j++) {
+                    var r=ch.ruby[j],rx=ch.x+r.x,ry=ch.y+r.y;
+                    var rw=+onGetTextWidth(r.text,r.size);
+                    renderLeft=Math.min(renderLeft,vertical ? rx-r.size : rx);
+                    renderTop=Math.min(renderTop,ry);
+                    renderRight=Math.max(renderRight,vertical ? rx : rx+rw);
+                    renderBottom=Math.max(renderBottom,ry+(vertical ? r.size*r.text.length : r.size));
+                }
+            }
+            if(!vertical && _trStyle.align==-1) renderRight=Math.max(renderRight,_trReplayRight);
+        }
+        // Native select buttons draw their caption through this path without a
+        // text area, so the block would start at the button layer origin. Center
+        // it in the requested rect instead; the dialog fallback path in
+        // SelectButtonLayer.drawMessage does the same with Font metrics.
+        if (centerWidth > 0 && centerHeight > 0 && _trChars.count > 0) {
+            var dx = (centerWidth - (renderRight - renderLeft)) / 2 - renderLeft;
+            var dy = (centerHeight - (renderBottom - renderTop)) / 2 - renderTop;
+            for (var i = 0; i < _trChars.count; i++) {
+                var ch = _trChars[i];
+                ch.x += dx;
+                ch.left = ch.x;
+                ch.y += dy;
+                ch.top = ch.y;
+            }
+            renderLeft += dx;
+            renderRight += dx;
+            renderTop += dy;
+            renderBottom += dy;
+        }
+        // Hanging punctuation and ruby can extend outside the inline limit;
+        // native renderOver measures the column/line progression instead.
+        renderOver = vertical ? (_trWidth>0 && bottom>_trWidth) : (_trHeight>0 && bottom>_trHeight);
+        maxScrollOffset = Math.max(0, renderBottom - _trHeight);
+        maxScrollLine = Math.max(0, renderLines - 1);
+        _trDone = true;
+        return renderCount;
+    }
+
+    // Native adapter redraw passes zero/zero for the entire character list.
+    // Nonzero arguments are interpreted as start/count, without timed filtering.
+    function getCharacters(start = 0, count = 0) {
+        var sorted = [], result = [], first = Math.max(0, (int)start);
+        for(var i=0;i<_trChars.count;i++) sorted.add(_trChars[i]);
+        sorted.sort(function(a,b) { return a.delay==b.delay ? a._trOrder<b._trOrder : a.delay<b.delay; });
+        var end = count > 0 ? Math.min(sorted.count, first + (int)count) : sorted.count;
+        for (var i = first; i < end; i++) result.add(sorted[i]);
+        return result;
+    }
+
+    function contains(x, y) {
+        return x >= renderLeft && x < renderRight && y >= renderTop && y < renderBottom;
+    }
+    function calcLineOffset(line = 0) {
+        return line >= 0 && line < _trLines.count ? _trLines[line].top : 0;
+    }
+    function calcShowCount(time = 0) {
+        var count=0;
+        for(var i=0;i<_trChars.count;i++) if(_trChars[i].delay*timeScale<=time)count++;
+        return count;
+    }
+    function getKeyWait(index = 0) {
+        var waits=[];
+        for(var i=0;i<_trWaits.count;i++) waits.add(%[pos:_trWaits[i].pos,time:_trWaits[i].time]);
+        return waits;
+    }
+    function getLinkNames() { return []; }
+    function getLinkRects(name = "") { return []; }
+    function getLinkCharacters(name = "") { return []; }
+    function isLinkContains(name, x, y) { return false; }
+    function getLinkOfPosition(x, y) { return ""; }
+}

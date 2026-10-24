@@ -1,0 +1,539 @@
+Debug.message("[Sabbat Web] Loading genuine startup bytecode");
+KirikiriEmscriptenInterface.evalJS("Sabbat.traceReady=true");
+// Register integrated plugins before compatibility methods. Native plugins are
+// enabled by default; nativeplugins=0 selects the previous compatibility path.
+global.__SabbatNativePlugins = %[];
+global.__SabbatNativePluginsEnabled = (int)KirikiriEmscriptenInterface.evalJS("new URLSearchParams(location.search).get('nativeplugins')!=='0'");
+global.__SabbatNativeMotionEnabled = __SabbatNativePluginsEnabled && (int)KirikiriEmscriptenInterface.evalJS("typeof Module._SabbatNativeMotionAvailable==='function' && Module._SabbatNativeMotionAvailable()===1 && new URLSearchParams(location.search).get('motion')!=='0'");
+global.__SabbatNativeMsdfEnabled = __SabbatNativePluginsEnabled && (int)KirikiriEmscriptenInterface.evalJS("typeof Module._SabbatNativeMsdfAvailable==='function' && Module._SabbatNativeMsdfAvailable()===1 && new URLSearchParams(location.search).get('msdf')!=='0'");
+if (__SabbatNativePluginsEnabled) {
+  var nativePlugins=["layerExImage.dll","layerExRaster.dll","layerExBTOA.dll","extrans.dll","extNagano.dll"];
+  for(var n=0;n<nativePlugins.count;n++) {
+    Plugins.link(nativePlugins[n]);
+    __SabbatNativePlugins[nativePlugins[n].toLowerCase()]=true;
+  }
+}
+if (__SabbatNativeMsdfEnabled) {
+  Plugins.link("msdfrender.dll");
+  __SabbatNativePlugins["msdfrender.dll"]=true;
+}
+if (__SabbatNativeMotionEnabled) {
+  Plugins.link("emoteplayer.dll");
+  __SabbatNativePlugins["emoteplayer.dll"]=true;
+}
+Scripts.foreach = function(obj, fn, *) {
+  // Callers also use foreach to find a value (for example a movie source
+  // class). Any non-void callback result ends iteration and is returned.
+  var result;
+  if (obj instanceof "Array") {
+    for (var i=0; i<obj.count; i++) {
+      result=fn(i,obj[i],*);
+      if (result!==void) return result;
+    }
+  } else {
+    var pairs=[]; pairs.assign(obj);
+    for (var i=0; i<pairs.count; i+=2) {
+      result=fn(pairs[i],pairs[i+1],*);
+      if (result!==void) return result;
+    }
+  }
+};
+Scripts.getObjectKeys = function(obj) {
+  var pairs=[],keys=[]; pairs.assign(obj);
+  for (var i=0;i<pairs.count;i+=2) keys.add(pairs[i]);
+  return keys;
+};
+Scripts.getObjectCount = function(obj) {
+  if (obj instanceof "Array") return obj.count;
+  var pairs=[]; pairs.assign(obj); return pairs.count / 2;
+};
+global.__SabbatCloneValue = function(obj, sources, copies, depth) {
+  if (obj === null || typeof obj != "Object") return obj;
+  if (depth > 100) throw new Exception("Web clone nesting limit exceeded");
+  for (var i=0;i<sources.count;i++) if (sources[i] === obj) return copies[i];
+  var copy;
+  if (obj instanceof "Array") copy=[];
+  else if (obj instanceof "Dictionary") copy=%[];
+  // Functions, class instances and engine objects retain identity. Only data
+  // containers are recursively copied; UI dictionaries also contain callbacks.
+  else return obj;
+  sources.add(obj); copies.add(copy);
+  if (obj instanceof "Array") {
+    for(var i=0;i<obj.count;i++) copy.add(__SabbatCloneValue(obj[i],sources,copies,depth+1));
+  } else {
+    var pairs=[];pairs.assign(obj);
+    for(var i=0;i<pairs.count;i+=2) copy[pairs[i]]=__SabbatCloneValue(pairs[i+1],sources,copies,depth+1);
+  }
+  return copy;
+};
+Scripts.clone = function(obj) {
+  return __SabbatCloneValue(obj,[],[],0);
+};
+global.__SabbatEqualValue = function(a,b,left,right) {
+  if(a === b) return true;
+  if(typeof a != typeof b || typeof a != "Object" || a === null || b === null) return false;
+  var aa=a instanceof "Array", ba=b instanceof "Array";
+  if(aa != ba) return false;
+  if(!aa && (!(a instanceof "Dictionary") || !(b instanceof "Dictionary"))) return false;
+  for(var i=0;i<left.count;i++) if(left[i] === a) return right[i] === b;
+  left.add(a);right.add(b);
+  if(aa) {
+    if(a.count != b.count) return false;
+    for(var i=0;i<a.count;i++) if(!__SabbatEqualValue(a[i],b[i],left,right)) return false;
+  } else {
+    var ap=[],bp=[];ap.assign(a);bp.assign(b);
+    if(ap.count != bp.count) return false;
+    for(var i=0;i<ap.count;i+=2) {
+      var found=false,j=0;
+      for(j=0;j<bp.count;j+=2) if(ap[i] === bp[j]) {found=true;break;}
+      if(!found || !__SabbatEqualValue(ap[i+1],bp[j+1],left,right)) return false;
+    }
+  }
+  return true;
+};
+Scripts.equalStruct = function(a,b) { return __SabbatEqualValue(a,b,[],[]); };
+// TJS === compares both function object and bound context (DiscernCompare).
+Scripts.isNullContext = function(fn) {
+  return typeof fn == "Object" && fn !== null && fn === (fn incontextof null);
+};
+// User configuration is an array of escaped NAME="VALUE" lines. Preserve its
+// actual text contents with the engine writer; do not emulate native binary saves.
+Array.save2 = function(storage, mode="") { return save(storage,mode); } incontextof null;
+Scripts.execStorage("system_polyfill/MenuItem_stub.tjs");
+MenuItem.add = function(item) {
+  item.parent = this;
+  item.index = children.count;
+  item.root = this.root ? this.root : this;
+  children.add(item);
+} incontextof null;
+MenuItem.insert = function(item, position=0) {
+  item.parent = this;
+  item.root = this.root ? this.root : this;
+  children.insert(position, item);
+  for (var i=0; i<children.count; i++) children[i].index = i;
+} incontextof null;
+MenuItem.remove = function(item) {
+  for (var i=children.count-1; i>=0; i--) if (children[i] === item) children.erase(i);
+  item.parent = void;
+  for (var i=0; i<children.count; i++) children[i].index = i;
+} incontextof null;
+Scripts.execStorage("system_polyfill/KAGParser.tjs");
+Scripts.execStorage("system_polyfill/csv-parser.tjs");
+Scripts.execStorage("system_polyfill/text-render.tjs");
+{
+  var check = new TextRenderBase();
+  check.setDefault(%[fontsize:10]); check.setRenderSize(25,100);
+  check.render("abc"); check.done();
+  if (check.getCharacters().count != 3) throw new Exception("Web text layout self-check failed");
+}
+global.KAGParserEx = KAGParser;
+System.addFont = function(file) { return Font.addFont(file); };
+// Native Layers (including the skip-to-choice status) bypass PreRenderFontEx.
+// Their fallback must be a registered native family, not a game font alias.
+// Register it before the original startup, independently of language selection.
+if (typeof global.__SabbatDefaultFaceInstalled == "undefined") {
+  Font.addFont("SourceHanSansSC-Regular.otf");
+  Font.defaultFaceName = "Source Han Sans SC Regular";
+  global.__SabbatDefaultFaceInstalled = true;
+  Debug.message("[Sabbat Web] default face: " + Font.defaultFaceName);
+}
+Window.exEventEnabled = false;
+// layerExImage's alpha mask operation is missing from this WASM. Read native
+// Layer properties explicitly: AffineLayer overrides its logical image size.
+global.__SabbatClipAlpha = KirikiriEmscriptenInterface.evalJS("Sabbat.clipAlphaRect");
+if(typeof Layer.clipAlphaRect!="Object") Layer.clipAlphaRect = function(dx,dy,src,sx,sy,w,h,outside=void) {
+  if(!(src instanceof "Layer")) throw new Exception("clipAlphaRect source must be a Layer");
+  var dw=*(&global.Layer.imageWidth incontextof this),dh=*(&global.Layer.imageHeight incontextof this);
+  var sw=*(&global.Layer.imageWidth incontextof src),sh=*(&global.Layer.imageHeight incontextof src);
+  var dpitch=*(&global.Layer.mainImageBufferPitch incontextof this);
+  var spitch=*(&global.Layer.mainImageBufferPitch incontextof src);
+  var sptr=*(&global.Layer.mainImageBuffer incontextof src);
+  var dptr=*(&global.Layer.mainImageBufferForWrite incontextof this);
+  __SabbatClipAlpha(dptr,dw,dh,dpitch,sptr,sw,sh,spitch,(int)dx,(int)dy,(int)sx,(int)sy,(int)w,(int)h,outside===void?-1:(int)outside);
+} incontextof null;
+// gfx_movie expects LayerExBTOA's opaque and packed-alpha movie helpers.
+global.__SabbatMovieAlpha = KirikiriEmscriptenInterface.evalJS("Sabbat.movieAlpha");
+global.__SabbatApplyMovieAlpha = function(mode) {
+  var w=*(&global.Layer.imageWidth incontextof this),h=*(&global.Layer.imageHeight incontextof this);
+  var pitch=*(&global.Layer.mainImageBufferPitch incontextof this);
+  var ptr=*(&global.Layer.mainImageBufferForWrite incontextof this);
+  __SabbatMovieAlpha(ptr,w,h,pitch,mode);
+} incontextof null;
+if(typeof Layer.fillAlpha!="Object") Layer.fillAlpha = function() {
+  return (__SabbatApplyMovieAlpha incontextof this)(0);
+} incontextof null;
+if(typeof Layer.copyBottomBlueToTopAlpha!="Object") Layer.copyBottomBlueToTopAlpha = function() {
+  return (__SabbatApplyMovieAlpha incontextof this)(1);
+} incontextof null;
+if(typeof Layer.copyRightBlueToLeftAlpha!="Object") Layer.copyRightBlueToLeftAlpha = function() {
+  return (__SabbatApplyMovieAlpha incontextof this)(2);
+} incontextof null;
+// layerExRaster supplies the horizontal ripple used while AffineLayer.raster is
+// active. AffineLayer's raster setter throws "layerExRaster plugin not loaded"
+// when this member is missing, so it must exist before the original startup.
+global.__SabbatCopyRaster = KirikiriEmscriptenInterface.evalJS("Sabbat.copyRaster");
+if(typeof Layer.copyRaster!="Object") Layer.copyRaster = function(src,maxh,lines,cycle,time) {
+  if(!(src instanceof "Layer")) throw new Exception("copyRaster source must be a Layer");
+  var dw=*(&global.Layer.imageWidth incontextof this),dh=*(&global.Layer.imageHeight incontextof this);
+  var sw=*(&global.Layer.imageWidth incontextof src),sh=*(&global.Layer.imageHeight incontextof src);
+  var dpitch=*(&global.Layer.mainImageBufferPitch incontextof this);
+  var spitch=*(&global.Layer.mainImageBufferPitch incontextof src);
+  var sptr=*(&global.Layer.mainImageBuffer incontextof src);
+  var dptr=*(&global.Layer.mainImageBufferForWrite incontextof this);
+  __SabbatCopyRaster(dptr,dw,dh,dpitch,sptr,sw,sh,spitch,(int)maxh,(int)lines,(int)cycle,(int)time);
+} incontextof null;
+Scripts.loadDataPack = function(name,options=void) {
+  var path=KirikiriEmscriptenInterface.evalJS("Sabbat.decodedPath");
+  return Scripts.evalStorage(path(name,"datapack"));
+};
+class PSBFile {
+  var root, storage;
+  function PSBFile(name=void) { if(name!==void) load(name); }
+  function load(name) {
+    storage=name;
+    var path=KirikiriEmscriptenInterface.evalJS("Sabbat.decodedPath");
+    var kind=Storages.extractStorageName(name).toLowerCase().indexOf(".pimg")>=0?"pimg":"psb";
+    root=Scripts.evalStorage(path(name,kind));
+    return true;
+  }
+  function finalize() { root=void; }
+}
+// Chrome uses browser decoding with the native VideoOverlay pump by default.
+// Expose only movies present in the media index; nativevideo=0 keeps PNG fallback.
+global.SabbatVideoAvailable = KirikiriEmscriptenInterface.evalJS("Sabbat.video.available");
+global.__SabbatVideoHas = global.SabbatVideoAvailable ?
+  KirikiriEmscriptenInterface.evalJS("Sabbat.video.has") : void;
+// The environment mapper probes movies before still images. Hide movies when
+// the backend or transcoded entry is missing, allowing the accompanying PNG
+// (羽.wmv -> 羽.png, 羽up.wmv -> 羽up.png) to remain available.
+global.__SabbatIsExistentStorage = Storages.isExistentStorage;
+Storages.isExistentStorage = function(name) {
+  var plugin = Storages.extractStorageName(name).toLowerCase();
+  if(plugin == "emoteplayer.dll" || plugin == "motionplayer.dll" || plugin == "motionplayer_nod3d.dll")
+    return global.__SabbatNativeMotionEnabled;
+  if(plugin == "msdfrender.dll") return global.__SabbatNativeMsdfEnabled;
+  var s = name.toLowerCase();
+  var movie = s.indexOf(".wmv")==s.length-4 || s.indexOf(".mpg")==s.length-4 ||
+              s.indexOf(".avi")==s.length-4 || s.indexOf(".mp4")==s.length-4 ||
+              s.indexOf(".mov")==s.length-4;
+  if(movie)
+  {
+    if(!global.SabbatVideoAvailable) return false;
+    if(global.__SabbatVideoHas && (__SabbatVideoHas)(name)) return true;
+    return false; // no transcoded media for this movie: keep the PNG fallback
+  }
+  return (__SabbatIsExistentStorage)(name);
+} incontextof null;
+global.__SabbatNativeLink = Plugins.link;
+Plugins.link = function(name) {
+  var key = Storages.extractStorageName(name).toLowerCase();
+  Debug.message("[Sabbat Web] plugin request: " + key);
+  if (key == "emoteplayer.dll" || key == "motionplayer.dll" || key == "motionplayer_nod3d.dll") {
+    if (__SabbatNativeMotionEnabled) return __SabbatNativeLink(name);
+    return false;
+  }
+  if (key == "msdfrender.dll") {
+    if (__SabbatNativeMsdfEnabled) return __SabbatNativeLink(name);
+    return false;
+  }
+  if (key == "layereximage.dll" || key == "layerexraster.dll" || key == "layerexbtoa.dll" || key == "extrans.dll" || key == "extnagano.dll") {
+    if (__SabbatNativePluginsEnabled) return __SabbatNativeLink(name);
+    return true; // explicit compatibility mode also prevents later native loads
+  }
+  if (key.indexOf("kagparser") == 0) {
+    Scripts.execStorage("system_polyfill/KAGParser.tjs");
+    global.KAGParserEx = KAGParser;
+    return true;
+  }
+  if (key == "menu.dll" || key == "csvparser.dll" || key == "savestruct.dll" || key == "psbfile.dll") return true;
+  if (key == "layereximage.dll" || key == "layerexdraw.dll" || key == "layerexraster.dll" || key == "windowex.dll" || key == "textrender.dll") return true;
+  return __SabbatNativeLink(name);
+};
+Scripts.execStorage("system_polyfill/transitions.tjs");
+if(global.SabbatVideoAvailable &&
+   !KirikiriEmscriptenInterface.evalJS("Sabbat.video.nativeBackend"))
+  Scripts.execStorage("system_polyfill/video-overlay.tjs");
+if(__SabbatNativeMotionEnabled) {
+  global.__SabbatMotionExecStorage=Scripts.execStorage;
+  Scripts.execStorage=function(storage,*) {
+    var result=(__SabbatMotionExecStorage)(storage,*);
+    if(Storages.extractStorageName(storage).toLowerCase()=="affinesourcemotion.tjs") {
+      KirikiriEmscriptenInterface.evalJS("Module._SabbatInstallMotionSourceGeometry()");
+      (__SabbatMotionExecStorage)("system_polyfill/motion-source.tjs");
+    }
+    return result;
+  };
+}
+{
+  global.__SabbatMsdfFontBoundsPatched=false;
+  global.__SabbatFontFallbackPatched=false;
+  global.__SabbatMsdfExecStorage=Scripts.execStorage;
+  Scripts.execStorage=function(storage,*) {
+    var result=(global.__SabbatMsdfExecStorage)(storage,*);
+    if(Storages.extractStorageName(storage).toLowerCase()=="prerenderfontex.tjs" &&
+       !global.__SabbatFontFallbackPatched) {
+      // TFTs keep their original virtual face and bitmap mapping. FreeType
+      // still needs a real font for ascent and missing characters; the
+      // original Windows-only MS Gothic fallback is unavailable in Web.
+      // An empty candidate explicitly selects the bundled outline font.
+      PreRenderFontEx.FallbackFace=",Source Han Sans SC Regular";
+      global.__SabbatFontFallbackPatched=true;
+      if(global.__SabbatNativeMsdfEnabled) {
+        // The original adapter allocates from font cell height. A mapped TFT
+        // glyph can extend below that cell with the FreeType fallback's ascent.
+        // Keep the adapter's layout/advance and grow only its raster surfaces.
+        global.__SabbatMsdfCalcResizeRect=PreRenderFontEx.calcResizeDrawTextRect;
+        PreRenderFontEx.calcResizeDrawTextRect=function(text) {
+          var rect=(global.__SabbatMsdfCalcResizeRect incontextof this)(text);
+          if(drawMode==1 && typeof resizeLayer.font.getGlyphDrawRect=="Object") {
+            var bounds=resizeLayer.font.getGlyphDrawRect(text);
+            rect[0]=Math.max(rect[0],bounds.right);
+            rect[1]=Math.max(rect[1],bounds.bottom);
+            rect[2]=Math.ceil(rect[0]*fontZoom);
+            rect[3]=Math.ceil(rect[1]*fontZoom);
+            var height=rect[1]+resizePadding*2;
+            if(resizeLayer.height<height) resizeLayer.height=height;
+          }
+          return rect;
+        } incontextof null;
+        global.__SabbatMsdfFontBoundsPatched=true;
+      }
+    }
+    return result;
+  };
+}
+// NameLayer's rectangle layout centres the font cell, while FreeType glyphs
+// can extend below it. Measure the original drawing (including its effects)
+// on a padded surface, then adjust only the name's vertical draw origin.
+global.__SabbatNameProbe=void;
+global.__SabbatDrawNameText=function(nameLayer, layer, text, rect) {
+  if(text=="" || rect.h<=0)
+    return EdgeShadowDrawTextKinsokuRect(void,layer,text,rect,nameLayer.owner);
+  if(global.__SabbatNameProbe===void || !isvalid global.__SabbatNameProbe) {
+    global.__SabbatNameProbe=new global.KAGLayer(layer.window,layer.window._primaryLayer);
+    global.__SabbatNameProbe.name="姓名边界测量";
+    global.__SabbatNameProbe.visible=false;
+  }
+  var probe=global.__SabbatNameProbe, f=layer.font, owner=nameLayer.owner;
+  var pad=Math.ceil(Math.abs(f.height)+Math.abs(owner.shadowOffsetY)+
+    Math.abs(owner.shadowOffsetX)+Math.abs(owner.shadowWidth)+Math.abs(owner.edgeExtent)+8);
+  var w=Math.ceil(Math.max(layer.imageWidth,rect.x+rect.w)+pad*2);
+  var h=Math.ceil(Math.max(layer.imageHeight,rect.y+rect.h)+pad*2);
+  probe.setSize(w,h);probe.setImageSize(w,h);probe.setClip(0,0,w,h);
+  probe.fillRect(0,0,w,h,0);
+  var pf=probe.font;
+  pf.face=f.face;pf.height=f.height;pf.bold=f.bold;pf.italic=f.italic;
+  pf.angle=f.angle;pf.underline=f.underline;pf.strikeout=f.strikeout;
+  var measured=%[];(Dictionary.assign incontextof measured)(rect,false);
+  measured.x+=pad;measured.y+=pad;
+  var result=EdgeShadowDrawTextKinsokuRect(void,probe,text,measured,owner);
+  var top,bottom,x;
+  for(top=0;top<h;top++) {
+    for(x=0;x<w;x++) if(probe.getMaskPixel(x,top)) break;
+    if(x<w) break;
+  }
+  if(top==h) return result;
+  for(bottom=h-1;bottom>=top;bottom--) {
+    for(x=0;x<w;x++) if(probe.getMaskPixel(x,bottom)) break;
+    if(x<w) break;
+  }
+  var inkHeight=bottom-top+1;
+  if(inkHeight>rect.h) {
+    // Unusually tall user fonts still fit without changing the name box or
+    // the original advance used to position the voice buttons.
+    var scale=rect.h/inkHeight;
+    var anchor=rect.x+(rect.halign==0 ? rect.w/2 : (rect.halign==1 ? rect.w : 0));
+    layer.stretchCopy(anchor*(1-scale),rect.y,layer.imageWidth*scale,rect.h,
+      probe,pad,top,layer.imageWidth,inkHeight,stFastLinear|stRefNoClip);
+    return result;
+  }
+  var offset=rect.valign==0 ? Math.floor((rect.h-inkHeight)/2) :
+    (rect.valign==1 ? rect.h-inkHeight : 0);
+  var adjusted=%[];(Dictionary.assign incontextof adjusted)(rect,false);
+  adjusted.y+=rect.y+offset-(top-pad);
+  return EdgeShadowDrawTextKinsokuRect(void,layer,text,adjusted,owner);
+};
+Scripts.execStorage("__original_startup.tjs");
+
+// Handle both conductor errors and uncaught timer/event errors before the
+// native fallback disables events and destroys the TJS VM. Keep this handler
+// independent of the game's error dialogs (whose fallback itself can throw).
+global.__SabbatFatalActive = false;
+global.__SabbatFatalRepeated = 0;
+global.__SabbatCaptureFatal = KirikiriEmscriptenInterface.evalJS("Sabbat.captureFatal");
+global.__SabbatHandleFatal = function(error) {
+  if (global.__SabbatFatalActive) {
+    global.__SabbatFatalRepeated++;
+    return true;
+  }
+  global.__SabbatFatalActive = true;
+  var message = "Unknown script exception", trace = "", scene = "", pauseErrors = "";
+  try { message = (string)error.message; } catch {}
+  try { if (error.trace !== void) trace = (string)error.trace; } catch {}
+  try { if (trace == "") trace = (string)kag.getErrorTraceLog(error); } catch {}
+  try { scene = "storage=" + kag.conductor.curStorage + " label=" + kag.conductor.curLabel
+    + " line=" + kag.conductor.curLine + " point=" + world_object.player.curPoint; } catch {}
+  // The failing conductor is normally stopped by its own catch block. Also
+  // stop the main conductor when an unrelated timer caused the exception.
+  try { kag.conductor.stop(); } catch(e) { pauseErrors += (string)e + "\n"; }
+  try { global.__SabbatCaptureFatal(message, trace, scene, pauseErrors); } catch {}
+  return true;
+} incontextof global;
+System.exceptionHandler = global.__SabbatHandleFatal;
+kag.onSystemExceptionHandler = global.__SabbatHandleFatal;
+
+// System.inform is an ordinary informational prompt, distinct from the native
+// fatal fallback which calls SDL's message box directly. Preserve its behavior.
+// & replaces the JS bridge member itself rather than invoking its PropSet.
+&System.inform = function(message, *) {
+  var inform = KirikiriEmscriptenInterface.evalJS("Sabbat.inform");
+  inform((string)message);
+} incontextof null;
+
+// Returning to title normally writes a continue bookmark. Do not persist the
+// partially executed scene, including writes queued in the current event batch.
+global.__SabbatFatalSaveBookmark = kag.saveBookMarkToFile;
+kag.saveBookMarkToFile = function(*) {
+  if (global.__SabbatFatalActive) return false;
+  return (global.__SabbatFatalSaveBookmark incontextof this)(*);
+} incontextof kag;
+global.__SabbatFatalSaveSystem = kag.saveSystemVariables;
+kag.saveSystemVariables = function(*) {
+  if (global.__SabbatFatalActive) return false;
+  return (global.__SabbatFatalSaveSystem incontextof this)(*);
+} incontextof kag;
+// Select the layer branch before sysmovie creates and attaches its private
+// _sysMovieLayer. Changing VideoOverlay.mode after that branch is too late.
+if(global.SabbatVideoAvailable)
+  checkWindowsVersion.getVomStyle = function(*) { return "layer"; };
+// Choice captions are drawn through SelectButtonLayer.drawMessage's character
+// path when the select element carries the render flag (multi-language text).
+// That path lays the block out at the button layer origin, and this UI defines
+// no uistates.text area, so the caption starts at the layer corner while the
+// bar art sits inset at (66,27) -- the caption ends up above/left of the bar
+// and left-aligned. Keep the native path but center the block in the button
+// rect, which is what the Font-metric fallback branch already does.
+// The override must exist before TextRender.draw is first called: assigning a
+// class method afterwards is not picked up by the already-resolved call site.
+if (typeof global.__SabbatSelectCaptionInstalled == "undefined") {
+  try {
+    // Loaded lazily by SelectLayer.render on first use; load it now so the
+    // patch lands on the class before any instance exists.
+    if (typeof global.TextRender != "Object") Scripts.execStorage("TextRender.tjs");
+    global.__SabbatTextRenderDraw = TextRender.draw;
+    TextRender.draw = function(layer, x, y, w, h, text, *) {
+      if (layer instanceof "SelectButtonLayer" && w > 0 && h > 0) {
+        centerWidth = w;
+        centerHeight = h;
+        try {
+          var r = (__SabbatTextRenderDraw incontextof this)(layer, x, y, w, h, text, *);
+          centerWidth = 0;
+          centerHeight = 0;
+          return r;
+        } catch (e) {
+          centerWidth = 0;
+          centerHeight = 0;
+          throw e;
+        }
+      }
+      return (__SabbatTextRenderDraw incontextof this)(layer, x, y, w, h, text, *);
+    } incontextof null;
+    global.__SabbatSelectCaptionInstalled = true;
+    Debug.message("[Sabbat Web] select caption centering installed");
+  } catch (e) {
+    Debug.message("[Sabbat Web] select caption centering unavailable: " + e.message);
+  }
+}
+// Emscripten cannot show a native modal Window. Keep the game's own layer
+// dialog, focus handling and yes/no/done callbacks instead of blocking JS.
+// Patch the live instance: global.askYesNo already holds its bound method.
+if (typeof global.__SabbatDialogNativeUseWindow == "undefined") {
+  global.__SabbatDialogRoutes = [];
+  global.__SabbatRecordDialogRoute = function(part, route, requested, movie, reason) {
+    var rows = global.__SabbatDialogRoutes;
+    if (rows.count >= 64) rows.erase(0);
+    rows.add(%[part:(string)part, route:route, nativeRequested:!!requested,
+      moviePlaying:!!movie, reason:reason]);
+    Debug.message("[Sabbat Web] dialog " + part + ": " + route +
+      " (native requested=" + !!requested + ", reason=" + reason + ")");
+  };
+  global.__SabbatDialogNativeUseWindow = MyYesNoDialog.instance.useWindowDialog;
+  MyYesNoDialog.instance.useWindowDialog = function(*) {
+    // Evaluate the original policy once; its function hooks may have effects.
+    var requested = (global.__SabbatDialogNativeUseWindow incontextof this)(*);
+    var movie = kag.isMoviePlaying();
+    var reason = !requested ? "default-layer" :
+      (movie && kag.movies[0].noLayerDialog ? "movie" : "hook");
+    global.__SabbatRecordDialogRoute(global.MyYesNoDialog.currentTextPart, "layer", requested,
+      movie, reason);
+    return false;
+  } incontextof MyYesNoDialog.instance;
+  // The original missing-UI fallback also calls Window.showModal. Only this
+  // asset-missing branch uses a browser prompt; retain its synchronous return
+  // and yes/no/done callback contract, including the original bound contexts.
+  global.__SabbatConfirmFallback = KirikiriEmscriptenInterface.evalJS("Sabbat.confirmFallback");
+  MyYesNoDialog.instance.origAskYesNo = function(text, caption="確認", yes=void, no=void, param=void, done=void) {
+    global.__SabbatRecordDialogRoute(((string)text).substr(0,256), "browser-confirm",
+      false, kag.isMoviePlaying(), "missing-ui");
+    var result = global.__SabbatConfirmFallback((string)text, (string)caption);
+    if (result) { if (yes !== void) yes(param); }
+    else { if (no !== void) no(param); }
+    if (done !== void) done(param);
+    return result;
+  } incontextof MyYesNoDialog.instance;
+}
+// The native PSB plugin supplies a psb:// storage media. Map only PIMG layer
+// paths to the lazy Web filesystem after the genuine loader builds its layers.
+// Metadata, difference selection and composition remain in the original scripts.
+global.__SabbatPIMGNativeLoad = PSDInfo.loadPIMG;
+PSDInfo.loadPIMG = function(storage) {
+  var result = (__SabbatPIMGNativeLoad incontextof this)(storage);
+  for(var i=0;i<layers.count;i++) {
+    var file = layers[i].layerFilename;
+    if(typeof file=="String" && file.indexOf("psb://")==0)
+      layers[i].layerFilename = "__pimg/" + file.substr(6);
+  }
+  return result;
+} incontextof null;
+// This game's TopLayer is the parent of both pages and system UI. The shipped
+// SDL engine leaves this container hidden. Restore only that named container;
+// individual pages, masks and dialogs keep their own visibility rules.
+for(var i=0;i<kag._primaryLayer.children.count;i++) {
+  var layer=kag._primaryLayer.children[i];
+  if(typeof layer.name != "undefined" && layer.name == "トップレイヤ") layer.visible=true;
+}
+SabbatInstallTitleMenuPositionRestore();
+global.__SabbatNativeSystemExit = System.exit;
+global.__SabbatCloseAfterExit = KirikiriEmscriptenInterface.evalJS("Sabbat.closeAfterExit");
+System.exit = function(*) {
+  global.__SabbatCloseAfterExit();
+  return (global.__SabbatNativeSystemExit)(*);
+} incontextof null;
+// The original no-GdiPlus fallback expects a dummy swatch and a Win32/input
+// dialog. Use the real Web swatch plus RGB prompt, keeping all color updates,
+// reset behavior and configuration persistence in CustomOption.
+if (typeof global.GdiPlus == "undefined") {
+  global.__SabbatChooseColor = KirikiriEmscriptenInterface.evalJS("Sabbat.chooseColor");
+  global.__SabbatNativeColorChanged = CustomOption.onColorChanged;
+  CustomOption.onColorChanged = function(*) {
+    var result = (global.__SabbatNativeColorChanged incontextof this)(*);
+    // This path updates scflags directly; serialize it as well as flushing
+    // IDBFS, so both color edits and reset survive a page refresh.
+    kag.saveSystemVariables();
+    return result;
+  } incontextof null;
+  CustomOption.setupColorPicker = function(cur, elm, ui) {
+    if (hsv) termColorPicker();
+    var base = cur.names.hsv;
+    if (base === void) return;
+    hsv = null;
+    var item = %[name:hsv_direct, x:base.left, y:base.top, normal:"dummy_colorpicker",
+      exp:"Current.cmd('setColorDirect')"];
+    elementSysSE(item, "hsv", ["click", "enter", "leave"]);
+    cur.addSystemButton(item);
+  } incontextof null;
+  CustomOption.setColorDirect = function() {
+    var color = global.__SabbatChooseColor(getColor());
+    if (color >= 0) onColorChanged(void, (int)color);
+  } incontextof null;
+}
