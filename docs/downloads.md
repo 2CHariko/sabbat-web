@@ -23,16 +23,6 @@
 | gh-proxy.com | [下载](https://gh-proxy.com/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-index.gpack) | [下载](https://gh-proxy.com/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-001.gpack) | [下载](https://gh-proxy.com/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-002.gpack) | [下载](https://gh-proxy.com/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-003.gpack) | [SHA-256](https://gh-proxy.com/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/RESOURCES-SHA256SUMS.txt) |
 | gh.llkk.cc | [下载](https://gh.llkk.cc/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-index.gpack) | [下载](https://gh.llkk.cc/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-001.gpack) | [下载](https://gh.llkk.cc/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-002.gpack) | [下载](https://gh.llkk.cc/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-003.gpack) | [SHA-256](https://gh.llkk.cc/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/RESOURCES-SHA256SUMS.txt) |
 
-抽查记录（2026-10-25）：从本次检查网络请求四个文件各自首尾 4096 字节，对照正式附件并检查 Content-Range；未整包下载，也不代表各地速度。
-
-| 通道 | 本次检查结果 |
-| --- | --- |
-| GitHub 原站 | 8/8 字节与 Range 抽查通过 |
-| ghfast.top | 8/8 字节与 Range 抽查通过 |
-| ghproxy.net | 8/8 字节与 Range 抽查通过 |
-| gh-proxy.com | 8/8 字节匹配；001、002 起始请求未返回 Range，续传行为需留意 |
-| gh.llkk.cc | 4/8 抽查通过；索引及 001 请求超时，优先换其他通道 |
-
 第三方代理只是备用访问方式，不是本项目运营的存储镜像，不能保证服务位置、下载速度或持续可用。文件名相同且 SHA-256 一致时，可以混用不同通道下载的文件。不要通过代理站登录账号或安装下载器。大文件失败可尝试断点续传或更换通道。
 
 代理服务说明：[ghfast.top](https://ghfast.top/) · [ghproxy.net](https://ghproxy.net/) · [gh-proxy.com](https://gh-proxy.com/docs/quick-start) · [gh.llkk.cc](https://gh.llkk.cc/)。
