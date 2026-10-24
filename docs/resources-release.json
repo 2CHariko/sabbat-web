@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "format": "gpack-release",
+  "version": "1.0.1",
+  "gameId": "sabbat",
+  "resourceProfile": "compact",
+  "volumeMiB": 1536,
+  "resourceSetId": "32aa8886c1b8c9a946271b8ca3b313865795d474dccc4a3203c595e25cecec5a",
+  "compatibilityId": "af1da91da9b71dba500de477fcb1f2a713620f127ea0d85ee22872fc341196d0",
+  "index": "sabbat-compact-1536mib-index.gpack",
+  "files": [
+    {
+      "name": "sabbat-compact-1536mib-index.gpack",
+      "size": 33236519,
+      "sha256": "8a07538898bd09664a6627af48552125ffc467a205ae6acf2504095e338ee65e"
+    },
+    {
+      "name": "sabbat-compact-1536mib-001.gpack",
+      "size": 1595830529,
+      "sha256": "190d8ac7e1fcdbb3c5c32fc056df18854a7d1674e0d69ca61f6b074ed9751a95"
+    },
+    {
+      "name": "sabbat-compact-1536mib-002.gpack",
+      "size": 1610581959,
+      "sha256": "b8bc43b26a55e6e8f1c866ba177a894f48a5974ba823b61843b785a411e88536"
+    },
+    {
+      "name": "sabbat-compact-1536mib-003.gpack",
+      "size": 286624542,
+      "sha256": "9f18ac2e9a6679ee98e5353eff62a57a4e9758f172bc722aea150bb7b77fdcbf"
+    }
+  ],
+  "playerVersion": "1.0.0",
+  "githubRelease": "https://github.com/2CHariko/sabbat-web/releases/tag/v1.0.0",
+  "totalBytes": 3526273549
+}

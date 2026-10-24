@@ -18,6 +18,11 @@
       "sha256": "35a522c6997eea1e88b14899d804035df7cf67aa2ed98a2640eeb63cfad3366b"
     },
     {
+      "file": "docs/downloads.md",
+      "bytes": 6479,
+      "sha256": "bdd5679083669388303dc2772e0ae18bd5e967d1e5f18f08f4bf9380c7697875"
+    },
+    {
       "file": "docs/media/controls.webp",
       "bytes": 77660,
       "sha256": "53f06ed0e9305aaa217c85cc26ef2d23e10a0b4387bc1e9fefc2736db569c8a1"
@@ -33,9 +38,19 @@
       "sha256": "1c1173429f35dc6ca5dad2d1ee464334c37fe1266101a352e183537862d5bf70"
     },
     {
+      "file": "docs/resources-release.json",
+      "bytes": 1210,
+      "sha256": "ce8e05b95d9aed4c44777081aa25e0db3819ce5c1db7e1356685a4c4b916460c"
+    },
+    {
+      "file": "docs/RESOURCES-SHA256SUMS.txt",
+      "bytes": 398,
+      "sha256": "b1d52186c5eb1ba70670e016193a41039cb8b26d169be609a375b9945ea1389b"
+    },
+    {
       "file": "docs/usage.md",
-      "bytes": 1533,
-      "sha256": "b09dfbe5ff04f4f166f4c9f7d6def124ab9707bb9f1a48e601d82f30f049c931"
+      "bytes": 2929,
+      "sha256": "8ef3c0e53412a2c43c92a47c1331cbe1f25b81f99d9911f42d69a122a9ff7c17"
     },
     {
       "file": "LICENSE.md",
@@ -44,8 +59,8 @@
     },
     {
       "file": "README.md",
-      "bytes": 3949,
-      "sha256": "0defff69270e0a6b02cf8cfa0d219c5292acffb884e7ab36286bc1fe53a519e1"
+      "bytes": 8382,
+      "sha256": "41bd580727d64c5a8e26e56042e9d1a34fd211923f5f70ce4097d7e762ffaf44"
     },
     {
       "file": "site/.nojekyll",
@@ -348,5 +363,5 @@
       "sha256": "a91a0814f0498c5002ed0557d35095c006dbe36f3346e14171caf026ce21126d"
     }
   ],
-  "totalBytes": 12528082
+  "totalBytes": 12541998
 }

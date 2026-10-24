@@ -26,11 +26,36 @@
 
 ## 三步开始
 
-1. **准备资源**：准备与当前播放器配套的完整 `.gpack` 资源集合，包含索引文件与全部分卷。无需解压分卷，旧试玩资源和不同集合不能混用。
+1. **下载资源**：从下方表格下载 **index、001、002、003 四个 `.gpack` 文件**，放在同一文件夹。无需解压，旧试玩资源和不同集合不能混用。
 2. **打开页面**：[进入网页版](https://2chariko.github.io/sabbat-web/)，选择全部文件，或选择存放这一整套文件的文件夹。手机可使用页面中的普通文件选择入口。
 3. **进入游戏**：资源校验通过后进入标题画面。建议横屏游玩，并先点击页面以启用声音。
 
-游戏资源通过浏览器本地文件接口读取；站点只提供播放器，不上传你选择的资源。本仓库不分发完整游戏资源，当前资源兼容信息见 [使用说明](docs/usage.md)。
+游戏资源通过浏览器本地文件接口读取，不上传你选择的资源。资源包单独放在 Release 附件中，当前资源兼容信息见 [使用说明](docs/usage.md)。
+
+## 下载游戏资源
+
+**在线玩：四个 .gpack 全部下载，总计 3.53 GB。** 无需解压、合并或改名；打开网页版后同时选择这四个文件。
+
+| 文件 | 大小 | 用途 |
+| --- | ---: | --- |
+| `sabbat-compact-1536mib-index.gpack` | 33.24 MB | 索引，必下 |
+| `sabbat-compact-1536mib-001.gpack` | 1.60 GB | 第 1 卷，必下 |
+| `sabbat-compact-1536mib-002.gpack` | 1.61 GB | 第 2 卷，必下 |
+| `sabbat-compact-1536mib-003.gpack` | 286.62 MB | 第 3 卷，必下 |
+
+### 国内访问备用下载
+
+| 下载通道 | 索引 index | 第 1 卷 001 | 第 2 卷 002 | 第 3 卷 003 | 校验表 |
+| --- | --- | --- | --- | --- | --- |
+| GitHub 原站 | [下载](https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-index.gpack) | [下载](https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-001.gpack) | [下载](https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-002.gpack) | [下载](https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-003.gpack) | [SHA-256](https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/RESOURCES-SHA256SUMS.txt) |
+| ghfast.top | [下载](https://ghfast.top/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-index.gpack) | [下载](https://ghfast.top/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-001.gpack) | [下载](https://ghfast.top/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-002.gpack) | [下载](https://ghfast.top/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-003.gpack) | [SHA-256](https://ghfast.top/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/RESOURCES-SHA256SUMS.txt) |
+| ghproxy.net | [下载](https://ghproxy.net/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-index.gpack) | [下载](https://ghproxy.net/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-001.gpack) | [下载](https://ghproxy.net/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-002.gpack) | [下载](https://ghproxy.net/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-003.gpack) | [SHA-256](https://ghproxy.net/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/RESOURCES-SHA256SUMS.txt) |
+| gh-proxy.com | [下载](https://gh-proxy.com/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-index.gpack) | [下载](https://gh-proxy.com/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-001.gpack) | [下载](https://gh-proxy.com/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-002.gpack) | [下载](https://gh-proxy.com/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-003.gpack) | [SHA-256](https://gh-proxy.com/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/RESOURCES-SHA256SUMS.txt) |
+| gh.llkk.cc | [下载](https://gh.llkk.cc/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-index.gpack) | [下载](https://gh.llkk.cc/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-001.gpack) | [下载](https://gh.llkk.cc/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-002.gpack) | [下载](https://gh.llkk.cc/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-compact-1536mib-003.gpack) | [SHA-256](https://gh.llkk.cc/https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/RESOURCES-SHA256SUMS.txt) |
+
+备用通道由第三方 GitHub 下载代理提供，不代表本站自建镜像或服务器位于国内，也不保证长期可用或满速。原站慢或某条链接失败时换另一行；下载后对照 [仓库中的 SHA-256 校验表](docs/RESOURCES-SHA256SUMS.txt) 检查文件。完整说明见 [下载与校验](docs/downloads.md)。
+
+**无需下载 Source code。** 在线游玩不需要播放器 ZIP；[播放器 ZIP](https://github.com/2CHariko/sabbat-web/releases/download/v1.0.0/sabbat-web-v1.0.0.zip) 仅供自行部署。介绍视频为可选附件。
 
 ## 为网页准备的操作区
 
@@ -51,7 +76,7 @@
 
 ## 关于这个仓库
 
-这是非官方 Web 移植的**运行产物发布仓库**，用于分发播放器、介绍素材和 GitHub Pages 站点。开发工程、原生引擎源码、构建工具、源码映射、个人存档和游戏分卷不在本仓库中。
+这是非官方 Web 移植的**运行产物发布仓库**，用于分发播放器、介绍素材和 GitHub Pages 站点。开发工程、原生引擎源码、构建工具、源码映射和个人存档不公开。游戏分卷作为 Release 附件分发，不进入 Git 历史或 Pages 站点。
 
 浏览器运行所需的脚本和 WASM 会随页面下载；“闭源发布”指不公开开发工程，不代表这些运行文件无法被浏览器查看。第三方引擎与依赖仍遵循各自许可，详见 [第三方声明](site/THIRD_PARTY_NOTICES.md)。
 
